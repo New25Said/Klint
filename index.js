@@ -1,103 +1,32 @@
 const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
+const path = require('path');
 
-// Express Server para servir HTML y mantener Render activo
+// Express Server para servir index.html y mantener Render activo
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
-// Servir la página web con el botón de invitación en la raíz "/"
+// Servir el archivo index.html en la raíz "/"
 app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Klint - Discord Bot</title>
-      <style>
-        body {
-          margin: 0;
-          padding: 0;
-          background-color: #0f172a;
-          color: #f8fafc;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-          text-align: center;
-        }
-        .card {
-          background: #1e293b;
-          padding: 3rem;
-          border-radius: 1rem;
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-          max-width: 400px;
-          border: 1px solid #334155;
-        }
-        h1 {
-          font-size: 2.5rem;
-          margin-bottom: 0.5rem;
-          color: #38bdf8;
-        }
-        p {
-          color: #94a3b8;
-          font-size: 1rem;
-          margin-bottom: 2rem;
-        }
-        .status {
-          display: inline-block;
-          padding: 0.25rem 0.75rem;
-          background-color: #10b981;
-          color: #111827;
-          border-radius: 9999px;
-          font-size: 0.875rem;
-          font-weight: bold;
-          margin-bottom: 1.5rem;
-        }
-        .btn {
-          display: inline-block;
-          background-color: #5865F2;
-          color: white;
-          padding: 0.8rem 1.5rem;
-          border-radius: 0.5rem;
-          text-decoration: none;
-          font-weight: bold;
-          transition: background-color 0.2s ease;
-        }
-        .btn:hover {
-          background-color: #4752C4;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="card">
-        <h1>Klint</h1>
-        <div class="status">● Sistema Operativo</div>
-        <p>Un usuario más en tu servidor. Charlas informales, respuestas inteligentes y presencia activa.</p>
-        <a class="btn" href="https://discord.com/oauth2/authorize?client_id=1535688886326530198&permissions=8&integration_type=0&scope=bot+applications.commands" target="_blank">Añadir a Discord</a>
-      </div>
-    </body>
-    </html>
-  `);
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.listen(PORT, () => {
   console.log(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping para Render Free Tier (utiliza tu URL oficial)
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://klint-gxww.onrender.com';
+// Auto-ping con la URL en duro para Render Free Tier (cada 10 minutos)
+const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
     .then(() => console.log('Self-ping exitoso para mantener Klint activo.'))
     .catch((err) => console.error('Error en self-ping:', err));
-}, 10 * 60 * 1000); // Cada 10 minutos
+}, 10 * 60 * 1000);
 
-// Inicialización de la API de Gemini
+// Inicialización de la API de Gemini con el modelo vigente gemini-2.5-flash
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
 // Inicialización del Cliente de Discord con los Intents necesarios
 const client = new Client({
@@ -133,7 +62,8 @@ const commands = [
     )
 ].map(command => command.toJSON());
 
-client.once('ready', async () => {
+// Evento clientReady (soluciona la advertencia de obsolescencia de v15)
+client.once('clientReady', async () => {
   console.log(`Klint ha iniciado sesión como ${client.user.tag}`);
 
   // Registrar comandos slash globalmente
