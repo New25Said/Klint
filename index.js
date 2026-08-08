@@ -24,9 +24,9 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Inicialización de la API de Gemini con el modelo vigente gemini-2.5-flash
+// Inicialización de la API de Gemini con el modelo gratuito compatible
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-8b' });
 
 // Inicialización del Cliente de Discord con los Intents necesarios
 const client = new Client({
@@ -62,7 +62,7 @@ const commands = [
     )
 ].map(command => command.toJSON());
 
-// Evento clientReady (soluciona la advertencia de obsolescencia de v15)
+// Evento clientReady
 client.once('clientReady', async () => {
   console.log(`Klint ha iniciado sesión como ${client.user.tag}`);
 
