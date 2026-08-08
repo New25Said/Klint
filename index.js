@@ -24,9 +24,9 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Inicialización de la API de Gemini con el modelo gratuito compatible
+// Inicialización de la API de Gemini con el modelo gemini-3.6-flash
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-8b' });
+const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
 
 // Inicialización del Cliente de Discord con los Intents necesarios
 const client = new Client({
@@ -44,7 +44,7 @@ const client = new Client({
 // Prompt base del sistema para definir la personalidad de Klint
 const SYSTEM_INSTRUCTION = `
 Eres Klint, un usuario más de la comunidad de Discord. 
-- Tu estilo es natural, relajado, informal y casual. Usa abreviaciones o formas de escribir comunes en internet de forma orgánica, sin sonar robótico ni forzado a ser humano.
+- Tu estilo es natural, relaxed, informal y casual. Usa abreviaciones o formas de escribir comunes en internet de forma orgánica, sin sonar robótico ni forzado a ser humano.
 - Responde de forma concisa o detallada según lo requiera el contexto del chat.
 - Analiza todo el historial reciente enviado para entender si te están hablando a ti, si la conversación terminó, o si están escribiendo ideas en varios mensajes separados.
 - No interrumpas conversaciones ajenas si no te están invocando o mencionando directamente.
