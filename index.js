@@ -1,31 +1,103 @@
 const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder } = require('discord.js');
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 
-// Express Server para mantener a Render activo y cumplir el chequeo Web Service
+// Express Server para servir HTML y mantener Render activo
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Servir la página web con el botón de invitación en la raíz "/"
 app.get('/', (req, res) => {
-  res.send('Klint está despierto y operacional.');
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Klint - Discord Bot</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 0;
+          background-color: #0f172a;
+          color: #f8fafc;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          text-align: center;
+        }
+        .card {
+          background: #1e293b;
+          padding: 3rem;
+          border-radius: 1rem;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+          max-width: 400px;
+          border: 1px solid #334155;
+        }
+        h1 {
+          font-size: 2.5rem;
+          margin-bottom: 0.5rem;
+          color: #38bdf8;
+        }
+        p {
+          color: #94a3b8;
+          font-size: 1rem;
+          margin-bottom: 2rem;
+        }
+        .status {
+          display: inline-block;
+          padding: 0.25rem 0.75rem;
+          background-color: #10b981;
+          color: #111827;
+          border-radius: 9999px;
+          font-size: 0.875rem;
+          font-weight: bold;
+          margin-bottom: 1.5rem;
+        }
+        .btn {
+          display: inline-block;
+          background-color: #5865F2;
+          color: white;
+          padding: 0.8rem 1.5rem;
+          border-radius: 0.5rem;
+          text-decoration: none;
+          font-weight: bold;
+          transition: background-color 0.2s ease;
+        }
+        .btn:hover {
+          background-color: #4752C4;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h1>Klint</h1>
+        <div class="status">● Sistema Operativo</div>
+        <p>Un usuario más en tu servidor. Charlas informales, respuestas inteligentes y presencia activa.</p>
+        <a class="btn" href="https://discord.com/oauth2/authorize?client_id=1535688886326530198&permissions=8&integration_type=0&scope=bot+applications.commands" target="_blank">Añadir a Discord</a>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
 app.listen(PORT, () => {
   console.log(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping para Render Free Tier (evita que el Web Service se duerma)
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
-if (RENDER_URL) {
-  setInterval(() => {
-    fetch(RENDER_URL)
-      .then(() => console.log('Self-ping exitoso para mantener Klint activo.'))
-      .catch((err) => console.error('Error en self-ping:', err));
-  }, 10 * 60 * 1000); // Cada 10 minutos
-}
+// Auto-ping para Render Free Tier (utiliza tu URL oficial)
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://klint-gxww.onrender.com';
+setInterval(() => {
+  fetch(RENDER_URL)
+    .then(() => console.log('Self-ping exitoso para mantener Klint activo.'))
+    .catch((err) => console.error('Error en self-ping:', err));
+}, 10 * 60 * 1000); // Cada 10 minutos
 
 // Inicialización de la API de Gemini
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 // Inicialización del Cliente de Discord con los Intents necesarios
 const client = new Client({
@@ -64,7 +136,7 @@ const commands = [
 client.once('ready', async () => {
   console.log(`Klint ha iniciado sesión como ${client.user.tag}`);
 
-  // Registrar comandos de barra diagonal globalmente
+  // Registrar comandos slash globalmente
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(
@@ -84,12 +156,11 @@ client.once('ready', async () => {
 // Función para cambiar de estado (Online, Idle, DND) y actividad sin depender de mensajes
 async function actualizarEstadoAutonomo() {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: 'Genera un estado corto de Discord para un usuario casual (máximo 5 palabras). Responde SOLO con el texto del estado, sin comillas ni explicaciones.',
-    });
+    const promptEstado = 'Genera un estado corto de Discord para un usuario casual (máximo 5 palabras). Responde SOLO con el texto del estado, sin comillas ni explicaciones.';
+    const result = await model.generateContent(promptEstado);
+    const response = await result.response;
+    const textoEstado = response.text()?.trim() || 'viendo el chat';
 
-    const textoEstado = response.text?.trim() || 'viendo el chat';
     const estados = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estados[Math.floor(Math.random() * estados.length)];
 
@@ -106,16 +177,16 @@ async function actualizarEstadoAutonomo() {
 // Función auxiliar para compilar contexto del canal e interactuar con la IA
 async function procesarRespuestaIA(canal, promptUsuario) {
   try {
-    // Obtener los últimos 10 mensajes del canal para no responder fuera de contexto
+    // Obtener los últimos 10 mensajes del canal para mantener contexto
     const mensajesPrevios = await canal.messages.fetch({ limit: 10 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuario = m.author.username;
       const contenido = m.content;
-      // Obtener presencia o actividad si está disponible
+      
       let actividad = '';
       if (m.member?.presence?.activities?.length) {
         const act = m.member.presence.activities[0];
-        actividad = ` [Jugando/Escuchando: ${act.name}]`;
+        actividad = ` [Actividad: ${act.name}]`;
       }
       return `${usuario}${actividad}: ${contenido}`;
     }).join('\n');
@@ -128,12 +199,10 @@ ${historialFormateado}
 PREGUNTA/MENSAJE ACTUAL A RESPONDER:
 ${promptUsuario}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: promptCompleto,
-    });
+    const result = await model.generateContent(promptCompleto);
+    const response = await result.response;
 
-    return response.text || 'banco de memoria vacío, no sé qué decir jsjs';
+    return response.text() || 'banco de memoria vacío, no sé qué decir jsjs';
   } catch (error) {
     console.error('Error en Gemini API:', error);
     return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
@@ -149,7 +218,6 @@ client.on('interactionCreate', async interaction => {
     const pregunta = interaction.options.getString('pregunta');
     const respuesta = await procesarRespuestaIA(interaction.channel, pregunta);
     
-    // Si la respuesta excede el límite de Discord, recortar
     if (respuesta.length > 2000) {
       await interaction.editReply(respuesta.slice(0, 1995) + '...');
     } else {
@@ -165,7 +233,7 @@ client.on('messageCreate', async message => {
   const esDM = !message.guild;
   const textoLower = message.content.toLowerCase();
   
-  // Expresión regular para detectar variantes de nombre: clin, klin, klint, klinty
+  // Detección de nombres: clin, klin, klint, klinty
   const patronNombres = /\b(clin|klin|klint|klinty)\b/i;
   const fueMencionadoDirectamente = message.mentions.has(client.user.id);
   const contieneNombre = patronNombres.test(textoLower);
