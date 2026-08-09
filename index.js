@@ -24,10 +24,19 @@ function cargarSystemInstruction() {
   }
 }
 
-// Limpia y sanitiza la URL de Firebase
+// Limpia y extrae la URL pura de Firebase eliminando corchetes, paréntesis o Markdown
 function obtenerFirebaseUrl() {
   let url = process.env.FIREBASE_DATABASE_URL || '';
-  url = url.trim().replace(/^["']|["']$/g, ''); // Elimina espacios y comillas
+  
+  // Extrae la URL si fue pegada como un link Markdown [text](http...)
+  const matchMarkdown = url.match(/\((https?:\/\/[^\)]+)\)/);
+  if (matchMarkdown) {
+    url = matchMarkdown[1];
+  }
+
+  // Limpia caracteres no deseados, comillas o corchetes
+  url = url.replace(/[\[\]()'"]/g, '').trim();
+
   if (url && !url.startsWith('http')) {
     url = `https://${url}`;
   }
@@ -183,7 +192,7 @@ async function obtenerMemoriaUsuario(userId) {
 async function guardarMemoriaUsuario(userId, mensaje, resumen) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) {
-    logEvent('Error: FIREBASE_DATABASE_URL debe ser una URL que comience con https://');
+    logEvent('Error: FIREBASE_DATABASE_URL debe ser una URL válida.');
     return;
   }
 
