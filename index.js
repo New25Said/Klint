@@ -77,7 +77,7 @@ app.listen(PORT, () => {
   logEvent(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping
+// Auto-ping para mantener Render activo
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -127,14 +127,14 @@ client.once('clientReady', async () => {
   programarSiguienteCambioEstado();
 });
 
-// Lista de modelos ordenada por prioridad para fallback instantáneo
+// Lista de modelos vigentes ordenada por capacidad y disponibilidad gratuita
 const MODELOS_FALLBACK = [
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
-  'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 ];
 
-// Consulta a Gemini con redundancia automática
+// Consulta a Gemini con redundancia automática entre modelos
 async function consultarGeminiMultimodelo(parts) {
   let ultimoError = null;
 
