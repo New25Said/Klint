@@ -76,7 +76,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Discord Client
+// Client de Discord con Presencias e Intents de Miembros activados
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -262,7 +262,7 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// Generación de estado autónomo verdaderamente dinámico y variado
+// Generación de estado autónomo verdaderamente dinámico
 async function actualizarEstadoIA(peticionManual = null) {
   try {
     let promptEstado = '';
@@ -270,7 +270,6 @@ async function actualizarEstadoIA(peticionManual = null) {
     if (peticionManual) {
       promptEstado = `Genera un estado corto de Discord para un usuario casual basado en esta instrucción: "${peticionManual}". Máximo 5 palabras, todo en minúsculas, solo el texto sin comillas.`;
     } else {
-      // Temáticas aleatorias para forzar variabilidad extrema en cada generación
       const tematicas = [
         "una actividad cotidiana de alguien en su computadora o celular",
         "un pensamiento existencial o filosófico gracioso e informal",
@@ -322,6 +321,51 @@ async function urlToGenerativePart(url) {
   }
 }
 
+// EVENTO DE LECTURA EN TIEMPO REAL: CAMBIOS DE ESTADO Y SPOTIFY/JUEGOS (presenceUpdate)
+client.on('presenceUpdate', async (oldPresence, newPresence) => {
+  try {
+    if (!newPresence || !newPresence.member || newPresence.member.user.bot) return;
+
+    const user = newPresence.member.user;
+    const guild = newPresence.guild;
+
+    // Buscar si hay una actividad de Spotify o Juego activa
+    const spotifyAct = newPresence.activities.find(a => a.name === 'Spotify');
+    const juegoAct = newPresence.activities.find(a => a.type === ActivityType.Playing);
+    const customStatus = newPresence.activities.find(a => a.type === ActivityType.Custom || a.type === 4);
+
+    if (customStatus && customStatus.state) {
+      logEvent(`[Estado Perfil Detectado] ${user.username}: "${customStatus.state}"`);
+    }
+
+    if (spotifyAct) {
+      logEvent(`[Spotify] ${user.username} escucha: ${spotifyAct.details} - ${spotifyAct.state}`);
+    } else if (juegoAct) {
+      logEvent(`[Juego] ${user.username} está jugando a: ${juegoAct.name}`);
+    }
+  } catch (err) {
+    // Silencioso
+  }
+});
+
+// BIENVENIDA A NUEVOS MIEMBROS (guildMemberAdd)
+client.on('guildMemberAdd', async member => {
+  try {
+    const canalTexto = member.guild.channels.cache.find(c => c.isTextBased() && c.permissionsFor(member.guild.members.me).has('SendMessages'));
+    if (!canalTexto) return;
+
+    await canalTexto.sendTyping();
+    const promptBienvenida = `${cargarSystemInstruction()}\nUn nuevo usuario llamado ${member.user.username} (<@${member.id}>) acaba de unirse al servidor. Dale una bienvenida super corta, informal y casual.`;
+    const bienvenidaText = await consultarGemini([{ text: promptBienvenida }], 60);
+
+    if (bienvenidaText) {
+      await canalTexto.send(bienvenidaText);
+    }
+  } catch (err) {
+    logEvent(`Error dando bienvenida: ${err.message}`);
+  }
+});
+
 async function obtenerDetallesIntegrantesServidor(guild) {
   if (!guild) return 'Entorno DM (Sin lista de servidor)';
   try {
@@ -338,8 +382,10 @@ async function obtenerDetallesIntegrantesServidor(guild) {
         pres.activities.forEach(act => {
           if (act.type === 4 || act.type === ActivityType.Custom) {
             estadoTexto = act.state || act.name || 'Sin estado';
+          } else if (act.name === 'Spotify') {
+            actividadTexto = ` (Escuchando: ${act.details} - ${act.state})`;
           } else if (act.name) {
-            actividadTexto = ` (${act.name})`;
+            actividadTexto = ` (Jugando: ${act.name})`;
           }
         });
       }
@@ -385,6 +431,13 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
+    // Detección de canciones / música
+    const pideMusica = /\b(recomienda|canción|cancion|música|musica|spotify|tema|temazo)\b/i.test(promptUsuario);
+    let instruccionMusica = '';
+    if (pideMusica) {
+      instruccionMusica = "\nINSTRUCCIÓN MÚSICA: Recomienda una canción real y agrega el enlace de búsqueda de YouTube al final usando este formato exacto: https://www.youtube.com/results?search_query=nombre+de+la+cancion";
+    }
+
     const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
     const instruccionGifForzada = pideGifExplicitamente 
       ? "\nREGLA OBLIGATORIA AHORA: El usuario te pidió un GIF/meme. DEBES incluir al final de tu respuesta la etiqueta [BUSCAR_GIF: tema_del_gif]. No te niegues a mandarlo."
@@ -394,9 +447,10 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
 ENTORNO: ${tipoEntorno}
 ${instruccionGifForzada}
+${instruccionMusica}
 ${contextoMemoriaAutor}
 
-LISTA DE MIEMBROS Y ESTADOS DE ESTE SERVIDOR:
+LISTA REAL DE MIEMBROS, ESTADOS DE PERFIL Y ACTIVIDADES EN VIVO:
 ${miembrosServidorTexto}
 
 HISTORIAL DEL CHAT:
@@ -476,6 +530,19 @@ client.on('messageCreate', async message => {
   const contieneNombre = patronNombres.test(textoLower);
   const tieneAdjuntos = message.attachments.size > 0;
   const tieneStickers = message.stickers.size > 0;
+
+  // Comandos casuales/juegos rápidos
+  if (contieneNombre && (textoLower.includes('dado') || textoLower.includes('lanza un dado'))) {
+    const resultadoDado = Math.floor(Math.random() * 6) + 1;
+    await message.reply(`salió un ${resultadoDado} mano xd`);
+    return;
+  }
+
+  if (contieneNombre && (textoLower.includes('moneda') || textoLower.includes('cara o cruz'))) {
+    const resMoneda = Math.random() < 0.5 ? 'cara' : 'cruz';
+    await message.reply(`salió ${resMoneda} mano, ya fue xd`);
+    return;
+  }
 
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
