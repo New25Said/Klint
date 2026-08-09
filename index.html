@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Klint AI Dashboard</title>
+  <title>Klint AI - Panel & Universo</title>
   <style>
     :root {
       --bg: #0f0f15;
@@ -21,11 +21,15 @@
     .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 20px; }
 
     header { text-align: center; margin-bottom: 10px; }
-    header h1 { font-size: 2rem; color: var(--accent); }
-    header p { color: var(--muted); font-size: 0.9rem; }
+    header h1 { font-size: 2.2rem; color: var(--accent); }
+    header p { color: var(--muted); font-size: 0.95rem; }
 
     .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-    .card h2 { font-size: 1.2rem; margin-bottom: 12px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; }
+    .card h2 { font-size: 1.25rem; margin-bottom: 12px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; }
+
+    .lore-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px; }
+    .lore-item { background: #11111a; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.9rem; }
+    .lore-item strong { color: var(--accent); display: block; margin-bottom: 4px; }
 
     .login-box { display: flex; gap: 10px; margin-bottom: 10px; }
     input[type="password"], input[type="text"], textarea {
@@ -37,8 +41,6 @@
       background: var(--accent); color: white; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s; white-space: nowrap;
     }
     button:hover { background: var(--accent-hover); }
-    button.secondary { background: #374151; }
-    button.secondary:hover { background: #4b5563; }
     button.danger { background: var(--danger); }
 
     .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
@@ -48,16 +50,19 @@
     textarea { height: 120px; resize: vertical; }
 
     .logs-box { background: #09090d; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #a7f3d0; }
-    .logs-box div { margin-bottom: 4px; }
     .logs-box div.error { color: #fca5a5; }
 
-    /* Estilos del Chat Web de Prueba */
-    .chat-box { background: #09090d; border: 1px solid var(--border); border-radius: 6px; height: 220px; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-    .chat-msg { max-width: 80%; padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; }
+    /* Estilos Avanzados del Chat Web */
+    .chat-box { background: #09090d; border: 1px solid var(--border); border-radius: 6px; height: 320px; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+    .chat-msg { max-width: 85%; padding: 10px 14px; border-radius: 8px; font-size: 0.95rem; line-height: 1.4; }
     .chat-msg.user { background: var(--accent); color: white; align-self: flex-end; }
     .chat-msg.bot { background: #262636; color: var(--text); align-self: flex-start; }
+    
+    .chat-media { margin-top: 8px; max-width: 100%; border-radius: 6px; border: 1px solid var(--border); }
+    audio { margin-top: 8px; width: 100%; height: 36px; }
 
-    .chat-input-box { display: flex; gap: 10px; }
+    .chat-controls { display: flex; flex-direction: column; gap: 8px; }
+    .chat-input-row { display: flex; gap: 10px; }
     .status-msg { font-size: 0.85rem; margin-top: 8px; color: var(--muted); }
   </style>
 </head>
@@ -65,9 +70,32 @@
 
   <div class="container">
     <header>
-      <h1>Klint AI Control Panel</h1>
-      <p>Panel de Administración y Prueba</p>
+      <h1>Mundo de Klint (Clin)</h1>
+      <p>Universo Oficial, Inteligencia y Panel de Control</p>
     </header>
+
+    <!-- Información y Lore del Universo de Klint -->
+    <div class="card">
+      <h2>Biografía & Lore del Bot</h2>
+      <div class="lore-grid">
+        <div class="lore-item">
+          <strong>Origen & Creador</strong>
+          Diseñado por Said Sandoval (Sa1xp / S41d_03) como un usuario casual y autónomo de Discord.
+        </div>
+        <div class="lore-item">
+          <strong>Ubicación & Creencia</strong>
+          Proveniente de Piura (Perú) y creyente en Dios.
+        </div>
+        <div class="lore-item">
+          <strong>Idiomas</strong>
+          Habla español, quechua y yucateco antiguo.
+        </div>
+        <div class="lore-item">
+          <strong>Parientes de Código</strong>
+          Ultron es su primo directo.
+        </div>
+      </div>
+    </div>
 
     <!-- Autenticación Admin -->
     <div class="card">
@@ -99,18 +127,22 @@
       <div id="logsContainer" class="logs-box">Cargando logs...</div>
     </div>
 
-    <!-- Sección de Chat de Prueba (Pública - Máx 15 mensajes) -->
+    <!-- Chat Web Interactivo de Prueba (Imágenes, GIFs, Audios) -->
     <div class="card">
       <h2>
         Chat de Prueba con Klint
         <span id="chatCounter" style="font-size: 0.85rem; color: var(--muted);">Mensajes restantes: 15</span>
       </h2>
       <div id="chatMessages" class="chat-box">
-        <div class="chat-msg bot">¡habla mano! soy klint. pon lo que quieras aquí para probarme (máximo 15 mensajes).</div>
+        <div class="chat-msg bot">¡habla mano! soy klint. puedes probarme aquí enviando texto, pidiendo un meme, un gif, o pidiéndome un audio para escucharme hablar.</div>
       </div>
-      <div class="chat-input-box">
-        <input type="text" id="webMsgInput" placeholder="Escribe tu mensaje a Klint..." onkeypress="handleEnter(event)">
-        <button onclick="enviarMensajeWeb()">Enviar</button>
+      
+      <div class="chat-controls">
+        <input type="text" id="webImgInput" placeholder="URL opcional de imagen para que la IA la analice (http...)" style="font-size: 0.85rem; padding: 6px 10px;">
+        <div class="chat-input-row">
+          <input type="text" id="webMsgInput" placeholder="Escribe 'manda un gif', 'haz un meme' o 'manda un audio'..." onkeypress="handleEnter(event)">
+          <button onclick="enviarMensajeWeb()">Enviar</button>
+        </div>
       </div>
     </div>
 
@@ -212,11 +244,14 @@
       }
     }
 
-    // Lógica del Chat Web
+    // Lógica avanzada del Chat Web
     async function enviarMensajeWeb() {
       const input = document.getElementById('webMsgInput');
+      const imgInput = document.getElementById('webImgInput');
       const text = input.value.trim();
-      if (!text) return;
+      const imageUrl = imgInput.value.trim();
+
+      if (!text && !imageUrl) return;
 
       if (msgCount >= 15) {
         alert('Has alcanzado el límite de 15 mensajes de prueba.');
@@ -227,19 +262,39 @@
       document.getElementById('chatCounter').innerText = `Mensajes restantes: ${15 - msgCount}`;
 
       const chatBox = document.getElementById('chatMessages');
-      chatBox.innerHTML += `<div class="chat-msg user">${text}</div>`;
+      
+      let userHtml = `<div class="chat-msg user">${text || 'Mira esta imagen'}</div>`;
+      if (imageUrl) {
+        userHtml += `<img src="${imageUrl}" class="chat-media">`;
+      }
+      chatBox.innerHTML += userHtml;
+
       input.value = '';
+      imgInput.value = '';
       chatBox.scrollTop = chatBox.scrollHeight;
 
       const res = await fetch('/api/web-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, count: msgCount })
+        body: JSON.stringify({ message: text, count: msgCount, imageUrl })
       });
 
       if (res.ok) {
         const data = await res.json();
-        chatBox.innerHTML += `<div class="chat-msg bot">${data.response}</div>`;
+        let botHtml = `<div class="chat-msg bot">${data.response}`;
+        
+        if (data.memeImagenUrl) {
+          botHtml += `<br><img src="${data.memeImagenUrl}" class="chat-media">`;
+        }
+        if (data.gifUrl) {
+          botHtml += `<br><img src="${data.gifUrl}" class="chat-media">`;
+        }
+        if (data.audioUrl) {
+          botHtml += `<br><audio controls autoplay src="${data.audioUrl}"></audio>`;
+        }
+
+        botHtml += `</div>`;
+        chatBox.innerHTML += botHtml;
         chatBox.scrollTop = chatBox.scrollHeight;
       }
     }
