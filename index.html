@@ -14,13 +14,13 @@
       --text: #f3f4f6;
       --muted: #9ca3af;
       --danger: #ef4444;
+      --warning: #f59e0b;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
     .container { width: 100%; max-width: 950px; display: flex; flex-direction: column; gap: 24px; }
 
-    /* Header Estilo Portafolio */
     header { text-align: center; padding: 30px 20px; background: linear-gradient(180deg, rgba(139,92,246,0.1) 0%, rgba(9,10,15,1) 100%); border-radius: 16px; border: 1px solid var(--border); }
     header h1 { font-size: 2.8rem; font-weight: 800; color: var(--accent); margin-bottom: 6px; }
     header p { color: var(--muted); font-size: 1.1rem; }
@@ -28,18 +28,15 @@
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
     .card h2 { font-size: 1.3rem; margin-bottom: 14px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; }
 
-    /* Grid del Portafolio de Funciones */
     .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 15px; }
     .feature-item { background: #0b0c12; border: 1px solid var(--border); padding: 16px; border-radius: 10px; }
     .feature-item h3 { font-size: 1rem; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
     .feature-item p { font-size: 0.88rem; color: var(--muted); line-height: 1.4; }
 
-    /* Biografía */
     .bio-box { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
     .bio-item { background: #0b0c12; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.9rem; }
     .bio-item strong { color: var(--accent); display: block; margin-bottom: 4px; }
 
-    /* Form y Botones */
     input[type="password"], input[type="text"], textarea {
       width: 100%; background: #08080c; border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 0.95rem; outline: none; transition: border 0.2s;
     }
@@ -50,6 +47,7 @@
     }
     button:hover { background: var(--accent-hover); }
     button.danger { background: var(--danger); }
+    button.warning { background: var(--warning); color: #000; }
 
     .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
     .stat-box { background: #08080c; padding: 16px; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
@@ -60,7 +58,6 @@
     .logs-box { background: #060608; border: 1px solid var(--border); border-radius: 8px; padding: 12px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #a7f3d0; }
     .logs-box div.error { color: #fca5a5; }
 
-    /* Chat Web Interactivo */
     .chat-box { background: #060608; border: 1px solid var(--border); border-radius: 8px; height: 340px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
     .chat-msg { max-width: 85%; padding: 10px 14px; border-radius: 10px; font-size: 0.95rem; line-height: 1.4; }
     .chat-msg.user { background: var(--accent); color: white; align-self: flex-end; }
@@ -78,13 +75,11 @@
 
   <div class="container">
     
-    <!-- Hero / Header -->
     <header>
       <h1>Portafolio de Klint AI</h1>
       <p>Bot Autónomo Inteligente para Discord & Web</p>
     </header>
 
-    <!-- Ficha del Personaje (Biografía y Lore) -->
     <div class="card">
       <h2>Biografía & Identidad</h2>
       <div class="bio-box">
@@ -107,7 +102,6 @@
       </div>
     </div>
 
-    <!-- Muestra de Capacidades (Portafolio de Funciones) -->
     <div class="card">
       <h2>Portafolio de Capacidades</h2>
       <div class="features-grid">
@@ -138,7 +132,6 @@
       </div>
     </div>
 
-    <!-- Panel de Administración -->
     <div class="card">
       <h2>Acceso Administrador</h2>
       <div class="chat-input-row" style="margin-bottom: 10px;">
@@ -148,7 +141,6 @@
       <p id="loginStatus" class="status-msg"></p>
     </div>
 
-    <!-- Área de Control Protegida -->
     <div id="adminPanel" style="display: none;" class="card">
       <h2>Panel de Control en Vivo</h2>
       <div class="grid-stats" style="margin-bottom: 15px;">
@@ -157,6 +149,7 @@
       </div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
         <button onclick="forzarEstado()">Actualizar Estado Ahora</button>
+        <button class="warning" onclick="deepResetServer()">🧹 Reinicio Profundo y Limpieza</button>
         <button class="danger" onclick="triggerDeploy()">Forzar Re-deploy (Render)</button>
       </div>
 
@@ -168,7 +161,6 @@
       <div id="logsContainer" class="logs-box">Cargando consola...</div>
     </div>
 
-    <!-- Chat Web de Prueba Interactivo -->
     <div class="card">
       <h2>
         Chat Web de Prueba
@@ -255,6 +247,18 @@
         body: JSON.stringify({ key: sessionKey })
       });
       alert('⚡ Estado actualizado.');
+    }
+
+    async function deepResetServer() {
+      if (!confirm('¿Deseas realizar un reinicio profundo? Se purgarán la memoria RAM y los logs en vivo (las memorias en Firebase permanecerán a salvo) y se compilará un nuevo deploy.')) return;
+      const res = await fetch('/api/deep-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey })
+      });
+      const data = await res.json();
+      if (res.ok) alert('🧹 ' + data.message);
+      else alert('❌ Error en el reinicio.');
     }
 
     async function triggerDeploy() {
