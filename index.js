@@ -253,7 +253,7 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Muestra la ficha técnica, actividad, memorias, meme y GIF de Klint para ti'),
+    .setDescription('Muestra el panel completo de diagnostico, memorias, estado y métricas'),
   new SlashCommandBuilder()
     .setName('ofertas')
     .setDescription('Busca ofertas y descuentos actualizados de juegos'),
@@ -288,33 +288,38 @@ function programarCambioEstadoRandom() {
   }, minutosRandom * 60 * 1000);
 }
 
-// Búsqueda de GIFs Reales mediante Tenor API
-async function buscarGifsReales(busqueda, cantidad = 1) {
+// Búsqueda de GIFs con Fallback Garantizado (SOLO 1 GIF)
+const GIFS_FALLBACK = [
+  'https://media.tenor.com/yhe9to9A4E8AAAAC/cat-cat-typing.gif',
+  'https://media.tenor.com/gKIn4D2o8p4AAAAC/funny-cat.gif',
+  'https://media.tenor.com/2roX357_640AAAAC/meme-cat.gif',
+  'https://media.tenor.com/vH1_fB6M3eIAAAAC/cat-meme.gif'
+];
+
+async function buscarGifsReales(busqueda) {
   if (!featureToggles.gifs) return [];
   
-  const limiteMax = Math.min(Math.max(cantidad, 1), 2);
-  const termino = busqueda || 'funny meme';
-  const urlsEncontradas = [];
-
+  const termino = busqueda || 'funny cat';
+  
   try {
-    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=10`;
+    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=5`;
     const res = await fetch(urlTenor);
     
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
-        for (let i = 0; i < limiteMax && i < data.results.length; i++) {
-          const gifDirecto = data.results[i].media?.[0]?.gif?.url || data.results[i].url;
-          if (gifDirecto) urlsEncontradas.push(gifDirecto);
-        }
-        if (urlsEncontradas.length > 0) return urlsEncontradas;
+        const gifItem = data.results[0];
+        const gifDirecto = gifItem.media?.[0]?.gif?.url || gifItem.media?.[0]?.mediumgif?.url || gifItem.url;
+        if (gifDirecto) return [gifDirecto];
       }
     }
   } catch (err) {
-    logEvent(`Error al consultar Tenor API: ${err.message}`, true);
+    logEvent(`Error buscando GIF en Tenor, usando Fallback: ${err.message}`, true);
   }
 
-  return ['https://media.tenor.com/yhe9to9A4E8AAAAC/cat-cat-typing.gif'];
+  // Fallback seguro si Tenor no responde o bloquea la IP
+  const gifFallback = GIFS_FALLBACK[Math.floor(Math.random() * GIFS_FALLBACK.length)];
+  return [gifFallback];
 }
 
 // Ofertas de Juegos
@@ -393,12 +398,13 @@ function generarUrlMemeImagen(textoMeme) {
   }
 }
 
+// SÍNTESIS DE VOZ MEJORADA (StreamElements API para evitar bloqueos)
 function obtenerUrlAudioVozNativo(texto) {
   if (!featureToggles.audio) return null;
   try {
     const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#\[\]]/g, '').slice(0, 150).trim();
     if (!textoLimpio) return null;
-    return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textoLimpio)}&tl=es-US&client=tw-ob`;
+    return `https://api.streamelements.com/kappa/v2/speech?voice=Mia&text=${encodeURIComponent(textoLimpio)}`;
   } catch (err) {
     logEvent(`Error generando audio nativo: ${err.message}`, true);
     return null;
@@ -523,11 +529,11 @@ async function obtenerPresenciaDetallada(user, guild = null) {
   if (pres.activities && pres.activities.length > 0) {
     pres.activities.forEach(act => {
       if (act.type === 4 || act.type === ActivityType.Custom) {
-        if (act.state) detalles.push(`Estado de perfil: "${act.state}"`);
+        if (act.state) detalles.push(`Estado: "${act.state}"`);
       } else if (act.name === 'Spotify') {
-        detalles.push(`Escuchando en Spotify: "${act.details}" de ${act.state}`);
+        detalles.push(`Escuchando Spotify: "${act.details}" de ${act.state}`);
       } else if (act.name) {
-        detalles.push(`Jugando / Usando App: "${act.name}"`);
+        detalles.push(`Jugando: "${act.name}"`);
       }
     });
   }
@@ -582,7 +588,6 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     let historialFormateado = '';
     let conteoPrevio = 0;
 
-    // Memoria extendida de hasta 20 mensajes de contexto
     if (canal) {
       const mensajesPrevios = await canal.messages.fetch({ limit: 20 });
       conteoPrevio = mensajesPrevios.size;
@@ -611,9 +616,9 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
 
-    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs|dos gifs)\b/i.test(promptUsuario);
+    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
-    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje voz)\b/i.test(promptUsuario);
+    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio)\b/i.test(promptUsuario);
 
     let instruccionExtra = '';
     if (pideAudio) {
@@ -621,10 +626,9 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     } else if (pideMemeImagen) {
       instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea un meme corto en dos líneas usando el tag [GENERAR_MEME: texto arriba | texto abajo]. NUNCA escribas el tag en el texto visible del mensaje.";
     } else if (pideGifExplicitamente) {
-      instruccionExtra = "\nREGLA DE GIF: Agrega [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje. Máximo 2.";
+      instruccionExtra = "\nREGLA DE GIF: Agrega [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje. Máximo 1 GIF.";
     }
 
-    // Evento raro espontáneo (1% de probabilidad)
     let eventoEspontaneo = '';
     if (Math.random() < 0.01) {
       eventoEspontaneo = "\n[EVENTO RARO: Comenta espontáneamente para revivir la conversación o invitar a usar una app activa.]";
@@ -660,7 +664,7 @@ ${promptUsuario}`;
       audioUrlGenerado = obtenerUrlAudioVozNativo(respuesta);
     } 
     
-    // Extracción limpia de tag de meme sin fuga de texto
+    // Extracción limpia de tag de meme
     const matchMeme = respuesta.match(/\[GENERAR_MEME:\s*([^\]]+)\]/i);
     if (matchMeme || pideMemeImagen) {
       const textoMeme = matchMeme ? matchMeme[1].trim() : 'cuando pasa | xd';
@@ -668,14 +672,13 @@ ${promptUsuario}`;
       memeImagenUrl = generarUrlMemeImagen(textoMeme);
     }
 
-    // Extracción limpia de tag de GIF sin fuga de texto
+    // Extracción limpia de tag de GIF (Garantizado 1 solo GIF)
     const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
     if (matchGif || pideGifExplicitamente) {
       const terminoBusqueda = matchGif ? matchGif[1].trim() : promptUsuario;
       respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/gi, '').trim();
       
-      const cantidadPedida = /\b(dos|2|un par)\b/i.test(promptUsuario) ? 2 : 1;
-      gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda, cantidadPedida);
+      gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda);
     }
 
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
@@ -712,7 +715,7 @@ client.on('interactionCreate', async interaction => {
 
       let mensajeFinal = respuesta;
       if (gifsUrls.length > 0) {
-        mensajeFinal = `${respuesta}\n${gifsUrls.join('\n')}`.trim();
+        mensajeFinal = `${respuesta}\n${gifsUrls[0]}`.trim();
       }
 
       await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
@@ -732,32 +735,41 @@ client.on('interactionCreate', async interaction => {
       let resumenMemoria = 'Aún no tengo datos guardados sobre ti.';
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
-        resumenMemoria = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
+        resumenMemoria = memoriasArray.map(m => `- ${m.resumen}`).join('\n');
       }
 
-      const memeTexto = `cuando ${nick} usa /status | y klint ya se acuerda de todo xd`;
+      // Métricas completas del servidor
+      const ramUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+      const uptimeMin = Math.floor(process.uptime() / 60);
+
+      const memeTexto = `cuando ${nick} revisa /status | y klint tiene todo bajo control xd`;
       const memeUrl = generarUrlMemeImagen(memeTexto);
-      const gifsUrls = await buscarGifsReales('cool robot', 1);
+      const gifsUrls = await buscarGifsReales('cool robot');
 
       let archivosAdjuntos = [];
       if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
 
-      const mensajeStatus = `🤖 **FICHA TÉCNICA DE KLINT - ESTADO ACTUAL**
+      const mensajeStatus = `📊 **DIAGNOSTICO Y ESTADO DEL SISTEMA KLINT**
 👤 **Usuario:** ${username} (Apodo: ${nick})
-🆔 **ID:** \`${user.id}\`
-🎮 **ACTIVIDAD ACTUAL:** ${actividad}
+🆔 **ID Usuario:** \`${user.id}\`
+🎮 **Tu Actividad:** ${actividad}
 
-🧠 **LO QUE RECUERDO DE TI:**
+⚙️ **MÉTRICAS DE ENGINE (HOST):**
+- 🟢 **Servidores conectados:** ${client.guilds.cache.size}
+- ⚡ **Latencia Ping:** ${client.ws.ping} ms
+- 💾 **Uso de RAM:** ${ramUsage} MB
+- ⏱️ **Tiempo Activo (Uptime):** ${uptimeMin} minutos
+
+🧠 **BASE DE DATOS Y MEMORIAS FIREBASE:**
 ${resumenMemoria}
 
-⚡ **CAPACIDADES ACTIVAS:**
-1. 🎙️ **Notas de voz MP3:** Pídeme "manda un audio".
-2. 🖼️ **Generador de Memes:** Pídeme "haz un meme".
-3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif".
-4. 👀 **Presencia en Tiempo Real:** Detección de juegos y Spotify.
-5. 💬 **Memoria Persistente:** Guardado automático en Firebase.
+🛠️ **TOGGLES Y MÓDULOS ACTIVOS:**
+- 🎙️ Audio MP3: **${featureToggles.audio ? 'ON ✅' : 'OFF ❌'}**
+- 🖼️ Memes Generador: **${featureToggles.memes ? 'ON ✅' : 'OFF ❌'}**
+- 🎞️ GIFs Tenor: **${featureToggles.gifs ? 'ON ✅' : 'OFF ❌'}**
+- 💬 Chat Web API: **${featureToggles.webChat ? 'ON ✅' : 'OFF ❌'}**
 
-${gifsUrls.join('\n')}`;
+${gifsUrls[0] || ''}`;
 
       await interaction.editReply({ content: mensajeStatus, files: archivosAdjuntos });
     }
@@ -787,7 +799,7 @@ ${gifsUrls.join('\n')}`;
     }
   }
 
-  // LÓGICA DE TRES EN RAYA FUNCIONAL Y SIN BLOQUEOS
+  // LÓGICA DE TRES EN RAYA
   if (interaction.isButton() && interaction.customId.startsWith('tictactoe_')) {
     const partes = interaction.customId.split('_');
     const row = parseInt(partes[1]);
@@ -878,17 +890,13 @@ client.on('messageCreate', async message => {
 
       let textoFinal = respuesta;
       if (gifsUrls.length > 0) {
-        textoFinal = `${respuesta}\n${gifsUrls.join('\n')}`.trim();
+        textoFinal = `${respuesta}\n${gifsUrls[0]}`.trim();
       }
 
-      // División de párrafos en mensajes independientes si se requiere
       const bloquesMensaje = textoFinal.split('\n\n').filter(b => b.trim().length > 0);
 
       if (bloquesMensaje.length > 1) {
-        // Primer mensaje respondiendo directamente (linked)
         await message.reply({ content: bloquesMensaje[0], files: archivosAdjuntos });
-        
-        // Mensajes restantes enviados en el canal (unlinked)
         for (let i = 1; i < bloquesMensaje.length; i++) {
           await message.channel.send({ content: bloquesMensaje[i] });
         }
