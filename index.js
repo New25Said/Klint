@@ -275,9 +275,27 @@ async function buscarOfertasJuegos() {
 
 // Fallback Completo de Modelos Gemini
 const MODELOS_FALLBACK = [
+  // --- Serie 3.x (Más recientes y potentes) ---
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent',
+
+  // --- Serie 2.x (Rápidos y estables) ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent',
+
+  // --- Serie 1.x (Clásicos y ligeros) ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent',
+
+  // --- Alias Comodín de Apuntado Automático ---
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
 ];
 
 async function consultarGemini(parts, maxTokens = 120) {
