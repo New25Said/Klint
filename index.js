@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
-// Logs del sistema
+// System Logs
 const systemLogs = [];
 function logEvent(msg, esError = false) {
   const timestamp = new Date().toLocaleTimeString();
@@ -24,7 +24,7 @@ process.on('uncaughtException', (err) => {
   logEvent(`Excepción no capturada: ${err.stack || err.message}`, true);
 });
 
-// Carga de system instruction
+// Cargar system_instruction.txt
 function cargarSystemInstruction() {
   try {
     const filePath = path.join(__dirname, 'system_instruction.txt');
@@ -95,7 +95,7 @@ app.post('/api/trigger-deploy', validarKey, async (req, res) => {
   }
 });
 
-// Chat Web Completo (Procesa imágenes, gifs y audios en la web)
+// Chat Web
 app.post('/api/web-chat', async (req, res) => {
   try {
     const { message, count, imageUrl } = req.body;
@@ -108,11 +108,11 @@ app.post('/api/web-chat', async (req, res) => {
       adjuntos.push({ contentType: 'image/png', url: imageUrl });
     }
 
-    const { respuesta, gifUrl, memeImagenUrl, audioUrl } = await procesarRespuestaIA(null, message || 'hola', adjuntos, true, { username: 'UsuarioWeb', id: 'web_guest' }, null);
+    const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(null, message || 'hola', adjuntos, true, { username: 'UsuarioWeb', id: 'web_guest' }, null);
 
     res.json({ 
       response: respuesta, 
-      gifUrl, 
+      gifsUrls, 
       memeImagenUrl, 
       audioUrl, 
       remaining: 15 - count 
@@ -209,25 +209,30 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Búsqueda de GIF infalible
-async function buscarGifReal(busqueda) {
+// Búsqueda de GIFs con límite estricto de máximo 2 elementos
+async function buscarGifsReales(busqueda, cantidad = 1) {
+  const limiteMax = Math.min(Math.max(cantidad, 1), 2); // Máximo 2 GIFs
   const termino = busqueda || 'funny meme';
+  const urlsEncontradas = [];
+
   try {
-    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=8`;
+    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=10`;
     const res = await fetch(urlTenor);
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
-        const itemRandom = data.results[Math.floor(Math.random() * data.results.length)];
-        const gifDirecto = itemRandom.media?.[0]?.gif?.url || itemRandom.url;
-        if (gifDirecto) return gifDirecto;
+        for (let i = 0; i < limiteMax && i < data.results.length; i++) {
+          const gifDirecto = data.results[i].media?.[0]?.gif?.url || data.results[i].url;
+          if (gifDirecto) urlsEncontradas.push(gifDirecto);
+        }
+        if (urlsEncontradas.length > 0) return urlsEncontradas;
       }
     }
   } catch (err) {
     logEvent(`Error al consultar Tenor API: ${err.message}`, true);
   }
 
-  return 'https://media.tenor.com/yhe9to9A4E8AAAAC/cat-cat-typing.gif';
+  return ['https://media.tenor.com/yhe9to9A4E8AAAAC/cat-cat-typing.gif'];
 }
 
 // Generador de Memes en Imagen Real
@@ -493,7 +498,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
 
-    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
+    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs|dos gifs)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
     const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
 
@@ -503,7 +508,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     } else if (pideMemeImagen) {
       instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea un meme corto en dos líneas usando el tag [GENERAR_MEME: texto arriba | texto abajo]. NUNCA escribas el tag en el texto visible del mensaje.";
     } else if (pideGifExplicitamente) {
-      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje.";
+      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje. Máximo puedes pedir 2.";
     }
 
     const promptText = `${systemInstruction}
@@ -536,7 +541,7 @@ ${promptUsuario}`;
     let respuestaRaw = await consultarGemini(parts, 120);
     let respuesta = respuestaRaw.replace(/<[^>]*>?/gm, '').trim();
 
-    let gifUrlEncontrada = null;
+    let gifsUrlsEncontradas = [];
     let memeImagenUrl = null;
     let audioUrlGenerado = null;
 
@@ -553,7 +558,9 @@ ${promptUsuario}`;
     if (matchGif || pideGifExplicitamente) {
       const terminoBusqueda = matchGif ? matchGif[1].trim() : 'funny meme';
       respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
-      gifUrlEncontrada = await buscarGifReal(terminoBusqueda);
+      
+      const cantidadPedida = /\b(dos|2|un par)\b/i.test(promptUsuario) ? 2 : 1;
+      gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda, cantidadPedida);
     }
 
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
@@ -562,14 +569,14 @@ ${promptUsuario}`;
 
     return { 
       respuesta: respuesta || 'aquí tienes', 
-      gifUrl: gifUrlEncontrada, 
+      gifsUrls: gifsUrlsEncontradas, 
       memeImagenUrl, 
       audioUrl: audioUrlGenerado, 
       conteoMensajes: conteoPrevio 
     };
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`, true);
-    return { respuesta: 'me dio un lag xd', gifUrl: null, memeImagenUrl: null, audioUrl: null, conteoMensajes: 0 };
+    return { respuesta: 'me dio un lag xd', gifsUrls: [], memeImagenUrl: null, audioUrl: null, conteoMensajes: 0 };
   }
 }
 
@@ -582,14 +589,16 @@ client.on('interactionCreate', async interaction => {
       await interaction.deferReply();
       const pregunta = interaction.options.getString('pregunta');
       const esDM = !interaction.guild;
-      const { respuesta, gifUrl, memeImagenUrl, audioUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
+      const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
       
       let archivosAdjuntos = [];
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
       if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
 
       let mensajeFinal = respuesta;
-      if (gifUrl) mensajeFinal = `${respuesta}\n${gifUrl}`.trim();
+      if (gifsUrls.length > 0) {
+        mensajeFinal = `${respuesta}\n${gifsUrls.join('\n')}`.trim();
+      }
 
       await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
     }
@@ -611,7 +620,7 @@ client.on('interactionCreate', async interaction => {
 
       const memeTexto = `cuando ${nick} usa /status | y klint ya se acuerda de todo xd`;
       const memeUrl = generarUrlMemeImagen(memeTexto);
-      const gifUrl = await buscarGifReal('cool robot');
+      const gifsUrls = await buscarGifsReales('cool robot', 1);
 
       const archivosAdjuntos = [new AttachmentBuilder(memeUrl, { name: 'status_meme.png' })];
 
@@ -625,11 +634,11 @@ ${resumenMemoria}
 ⚡ **CAPACIDADES ACTIVAS DE KLINT:**
 1. 🎙️ **Notas de voz:** Pídeme "manda un audio" y te responderé en MP3.
 2. 🖼️ **Generador de Memes e Imágenes:** Pídeme "haz un meme" y crearé una imagen personalizada.
-3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir un GIF real de Tenor.
+3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir hasta 2 GIFs animados reales.
 4. 👀 **Presencia en Tiempo Real:** Leo tu estado personalizado de perfil y si escuchas Spotify o juegas.
 5. 💬 **Memoria Persistente:** Recuerdo tus gustos y conversaciones en Firebase.
 
-${gifUrl ? gifUrl : ''}`;
+${gifsUrls.join('\n')}`;
 
       await interaction.editReply({ content: mensajeStatus, files: archivosAdjuntos });
     }
@@ -671,14 +680,16 @@ client.on('messageCreate', async message => {
       await message.channel.sendTyping();
       
       const adjuntosArray = Array.from(message.attachments.values());
-      const { respuesta, gifUrl, memeImagenUrl, audioUrl, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author, message.guild);
+      const { respuesta, gifsUrls, memeImagenUrl, audioUrl, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author, message.guild);
       
       let archivosAdjuntos = [];
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
       if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
 
       let textoFinal = respuesta;
-      if (gifUrl) textoFinal = `${respuesta}\n${gifUrl}`.trim();
+      if (gifsUrls.length > 0) {
+        textoFinal = `${respuesta}\n${gifsUrls.join('\n')}`.trim();
+      }
 
       const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
       const contenidoMensaje = textoLimpio || (archivosAdjuntos.length > 0 ? 'aquí tienes' : 'xd');
