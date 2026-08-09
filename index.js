@@ -77,11 +77,10 @@ app.post('/api/force-status', validarKey, async (req, res) => {
   res.json({ success: true });
 });
 
-// Trigger Deploy Hook de Render (Con clave de admin)
 app.post('/api/trigger-deploy', validarKey, async (req, res) => {
   const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
   if (!deployHookUrl) {
-    return res.status(400).json({ error: 'No se configuró RENDER_DEPLOY_HOOK_URL en las Variables de Entorno' });
+    return res.status(400).json({ error: 'No se configuró RENDER_DEPLOY_HOOK_URL en Variables de Entorno' });
   }
   try {
     const response = await fetch(deployHookUrl, { method: 'POST' });
@@ -96,15 +95,28 @@ app.post('/api/trigger-deploy', validarKey, async (req, res) => {
   }
 });
 
-// Endpoint público del Chat Web (Límite 15 mensajes por sesión)
+// Chat Web Completo (Procesa imágenes, gifs y audios en la web)
 app.post('/api/web-chat', async (req, res) => {
   try {
-    const { message, count } = req.body;
+    const { message, count, imageUrl } = req.body;
     if (count > 15) {
       return res.json({ response: 'alcanzaste el límite de 15 mensajes de prueba pe mano xd' });
     }
-    const { respuesta } = await procesarRespuestaIA(null, message || 'hola', [], true, { username: 'UsuarioWeb', id: 'web_guest' }, null);
-    res.json({ response: respuesta, remaining: 15 - count });
+
+    let adjuntos = [];
+    if (imageUrl) {
+      adjuntos.push({ contentType: 'image/png', url: imageUrl });
+    }
+
+    const { respuesta, gifUrl, memeImagenUrl, audioUrl } = await procesarRespuestaIA(null, message || 'hola', adjuntos, true, { username: 'UsuarioWeb', id: 'web_guest' }, null);
+
+    res.json({ 
+      response: respuesta, 
+      gifUrl, 
+      memeImagenUrl, 
+      audioUrl, 
+      remaining: 15 - count 
+    });
   } catch (err) {
     logEvent(`Error en Web Chat: ${err.message}`, true);
     res.status(500).json({ response: 'me dio un lag xd' });
@@ -197,7 +209,7 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Búsqueda de GIF infalible por Tenor v1 API Pública
+// Búsqueda de GIF infalible
 async function buscarGifReal(busqueda) {
   const termino = busqueda || 'funny meme';
   try {
