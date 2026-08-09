@@ -11,7 +11,6 @@ const {
   ButtonBuilder, 
   ButtonStyle 
 } = require('discord.js');
-const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus } = require('@discordjs/voice');
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -238,8 +237,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildPresences,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.DirectMessages
   ],
   partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
 });
@@ -844,7 +842,7 @@ ${gifsUrls.join('\n')}`;
 });
 
 // ==========================================
-// MENSAJES Y CONEXIÓN A VOZ
+// MENSAJES Y RESPUESTAS
 // ==========================================
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
@@ -852,29 +850,6 @@ client.on('messageCreate', async message => {
   try {
     const esDM = !message.guild;
     const textoLower = message.content.toLowerCase();
-
-    // Detección y Conexión a Canal de Voz
-    if (textoLower.includes('unete a la llamada') || textoLower.includes('entra a llamada') || textoLower.includes('ven a voz')) {
-      const voiceChannel = message.member?.voice?.channel;
-      if (voiceChannel) {
-        try {
-          joinVoiceChannel({
-            channelId: voiceChannel.id,
-            guildId: voiceChannel.guild.id,
-            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-          });
-          await message.reply(`ya me uní al canal de voz **${voiceChannel.name}** mano xd`);
-          return;
-        } catch (err) {
-          logEvent(`Error al unirse al canal de voz: ${err.message}`, true);
-          await message.reply('intente unirme pero dio un error el canal de voz pe xd');
-          return;
-        }
-      } else {
-        await message.reply('entra tú primero a un canal de voz para jalarme pe xd');
-        return;
-      }
-    }
     
     const patronNombres = /\b(clin|klin|klint|klinty)\b/i;
     const fueMencionadoDirectamente = message.mentions.has(client.user.id);
