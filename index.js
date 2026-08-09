@@ -34,6 +34,9 @@ function obtenerFirebaseUrl() {
   return url;
 }
 
+// Variable global donde Klint guarda su actividad estética actual
+let actividadActualKlint = { tipo: 'Custom', nombre: 'modo chill' };
+
 // Servidor Express
 const app = express();
 app.use(express.json());
@@ -262,37 +265,39 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// Generación de estado autónomo verdaderamente dinámico
+// Generación de estado autónomo incluyendo Música y Juegos para la presencia rica de Klint
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    let promptEstado = '';
-    
+    const modosActividad = [
+      { tipo: ActivityType.Custom, instruccion: "un estado corto de perfil de Discord (máximo 5 palabras)" },
+      { tipo: ActivityType.Listening, instruccion: "nombre corto de un álbum o canción real para escuchar en Spotify" },
+      { tipo: ActivityType.Playing, instruccion: "nombre corto de un videojuego conocido" }
+    ];
+
+    const seleccion = modosActividad[Math.floor(Math.random() * modosActividad.length)];
+    let promptEstado = `Inventa ${seleccion.instruccion}. Todo en minúsculas, casual, solo el texto sin comillas ni puntos.`;
+
     if (peticionManual) {
-      promptEstado = `Genera un estado corto de Discord para un usuario casual basado en esta instrucción: "${peticionManual}". Máximo 5 palabras, todo en minúsculas, solo el texto sin comillas.`;
-    } else {
-      const tematicas = [
-        "una actividad cotidiana de alguien en su computadora o celular",
-        "un pensamiento existencial o filosófico gracioso e informal",
-        "una excusa graciosa para no responder o no trabajar",
-        "algo relacionado con comida, antojos o hambre",
-        "un estado sarcástico o irónico de internet",
-        "una referencia casual a estar escuchando música o jugando algo rancio"
-      ];
-      const tematicaRandom = tematicas[Math.floor(Math.random() * tematicas.length)];
-      promptEstado = `Inventa un estado de perfil de Discord único e informal (máximo 5 palabras) sobre ${tematicaRandom}. Todo en minúsculas, casual, sin puntos finales ni comillas.`;
+      promptEstado = `Genera un texto de estado casual de Discord basado en esta petición: "${peticionManual}". Máximo 5 palabras, solo texto.`;
     }
 
-    const textoGenerado = await consultarGemini([{ text: promptEstado }], 30);
-    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase();
+    const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
+    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
+
+    // Guardar en la variable global para que la IA sepa lo que está haciendo
+    actividadActualKlint = {
+      tipo: seleccion.tipo === ActivityType.Listening ? 'Escuchando' : seleccion.tipo === ActivityType.Playing ? 'Jugando a' : 'Estado de perfil',
+      nombre: textoEstado
+    };
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
 
     client.user.setPresence({
       status: estadoAleatorio,
-      activities: [{ name: textoEstado, type: ActivityType.Custom }]
+      activities: [{ name: textoEstado, type: seleccion.tipo }]
     });
-    logEvent(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
+    logEvent(`Presencia de Klint cambiada a [${actividadActualKlint.tipo}: ${textoEstado}]`);
   } catch (error) {
     logEvent(`Error al generar estado autónomo: ${error.message}`);
   }
@@ -321,53 +326,46 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// EVENTO DE LECTURA EN TIEMPO REAL: CAMBIOS DE ESTADO Y SPOTIFY/JUEGOS (presenceUpdate)
-client.on('presenceUpdate', async (oldPresence, newPresence) => {
-  try {
-    if (!newPresence || !newPresence.member || newPresence.member.user.bot) return;
+// Búsqueda de presencia de un usuario tanto en servidor como en privado (DM)
+async function obtenerPresenciaCualquierEntorno(user, guild = null) {
+  let member = null;
 
-    const user = newPresence.member.user;
-    const guild = newPresence.guild;
-
-    // Buscar si hay una actividad de Spotify o Juego activa
-    const spotifyAct = newPresence.activities.find(a => a.name === 'Spotify');
-    const juegoAct = newPresence.activities.find(a => a.type === ActivityType.Playing);
-    const customStatus = newPresence.activities.find(a => a.type === ActivityType.Custom || a.type === 4);
-
-    if (customStatus && customStatus.state) {
-      logEvent(`[Estado Perfil Detectado] ${user.username}: "${customStatus.state}"`);
+  if (guild) {
+    try { member = await guild.members.fetch(user.id); } catch (e) {}
+  } else {
+    // Si es DM, buscar al miembro en cualquier servidor compartido que tenga el bot
+    for (const g of client.guilds.cache.values()) {
+      try {
+        member = await g.members.fetch(user.id);
+        if (member && member.presence) break;
+      } catch (e) {}
     }
-
-    if (spotifyAct) {
-      logEvent(`[Spotify] ${user.username} escucha: ${spotifyAct.details} - ${spotifyAct.state}`);
-    } else if (juegoAct) {
-      logEvent(`[Juego] ${user.username} está jugando a: ${juegoAct.name}`);
-    }
-  } catch (err) {
-    // Silencioso
   }
-});
 
-// BIENVENIDA A NUEVOS MIEMBROS (guildMemberAdd)
-client.on('guildMemberAdd', async member => {
-  try {
-    const canalTexto = member.guild.channels.cache.find(c => c.isTextBased() && c.permissionsFor(member.guild.members.me).has('SendMessages'));
-    if (!canalTexto) return;
+  if (!member || !member.presence) return 'Sin estado/Offline';
 
-    await canalTexto.sendTyping();
-    const promptBienvenida = `${cargarSystemInstruction()}\nUn nuevo usuario llamado ${member.user.username} (<@${member.id}>) acaba de unirse al servidor. Dale una bienvenida super corta, informal y casual.`;
-    const bienvenidaText = await consultarGemini([{ text: promptBienvenida }], 60);
+  const pres = member.presence;
+  let detalles = [];
 
-    if (bienvenidaText) {
-      await canalTexto.send(bienvenidaText);
-    }
-  } catch (err) {
-    logEvent(`Error dando bienvenida: ${err.message}`);
+  if (pres.activities && pres.activities.length > 0) {
+    pres.activities.forEach(act => {
+      if (act.type === 4 || act.type === ActivityType.Custom) {
+        const texto = act.state || act.name || '';
+        if (texto) detalles.push(`Estado de perfil: "${texto}"`);
+      } else if (act.name === 'Spotify') {
+        const cancion = act.details ? `${act.details} de ${act.state}` : 'Spotify';
+        detalles.push(`Escuchando en Spotify: ${cancion}`);
+      } else if (act.name) {
+        detalles.push(`Jugando: ${act.name}`);
+      }
+    });
   }
-});
+
+  return detalles.length > 0 ? detalles.join(' | ') : 'En línea (sin actividad visible)';
+}
 
 async function obtenerDetallesIntegrantesServidor(guild) {
-  if (!guild) return 'Entorno DM (Sin lista de servidor)';
+  if (!guild) return 'Entorno DM (Sin lista masiva de servidor)';
   try {
     const miembros = await guild.members.fetch();
     const resumenMiembros = [];
@@ -383,14 +381,14 @@ async function obtenerDetallesIntegrantesServidor(guild) {
           if (act.type === 4 || act.type === ActivityType.Custom) {
             estadoTexto = act.state || act.name || 'Sin estado';
           } else if (act.name === 'Spotify') {
-            actividadTexto = ` (Escuchando: ${act.details} - ${act.state})`;
+            actividadTexto = ` (Spotify: ${act.details} - ${act.state})`;
           } else if (act.name) {
             actividadTexto = ` (Jugando: ${act.name})`;
           }
         });
       }
 
-      resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}, Tag: <@${m.id}>) ${esBot} [Estado Perfil: "${estadoTexto}"${actividadTexto}]`);
+      resumenMiembros.push(`- ${m.user.username} (Tag: <@${m.id}>) ${esBot} [Perfil: "${estadoTexto}"${actividadTexto}]`);
     });
 
     return resumenMiembros.slice(0, 25).join('\n');
@@ -403,6 +401,9 @@ async function obtenerDetallesIntegrantesServidor(guild) {
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
+    
+    // Obtener presencia exacta del usuario que le habla (incluso en DM)
+    const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
     const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
 
     const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
@@ -431,13 +432,6 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
-    // Detección de canciones / música
-    const pideMusica = /\b(recomienda|canción|cancion|música|musica|spotify|tema|temazo)\b/i.test(promptUsuario);
-    let instruccionMusica = '';
-    if (pideMusica) {
-      instruccionMusica = "\nINSTRUCCIÓN MÚSICA: Recomienda una canción real y agrega el enlace de búsqueda de YouTube al final usando este formato exacto: https://www.youtube.com/results?search_query=nombre+de+la+cancion";
-    }
-
     const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
     const instruccionGifForzada = pideGifExplicitamente 
       ? "\nREGLA OBLIGATORIA AHORA: El usuario te pidió un GIF/meme. DEBES incluir al final de tu respuesta la etiqueta [BUSCAR_GIF: tema_del_gif]. No te niegues a mandarlo."
@@ -446,11 +440,13 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
+TU ACTIVIDAD VISIBLE ACTUAL EN DISCORD (Por si te preguntan qué haces/escuchas): [${actividadActualKlint.tipo}: ${actividadActualKlint.nombre}]
+DATOS EN TIEMPO REAL DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
+
 ${instruccionGifForzada}
-${instruccionMusica}
 ${contextoMemoriaAutor}
 
-LISTA REAL DE MIEMBROS, ESTADOS DE PERFIL Y ACTIVIDADES EN VIVO:
+LISTA DE MIEMBROS DE ESTE SERVIDOR:
 ${miembrosServidorTexto}
 
 HISTORIAL DEL CHAT:
@@ -530,19 +526,6 @@ client.on('messageCreate', async message => {
   const contieneNombre = patronNombres.test(textoLower);
   const tieneAdjuntos = message.attachments.size > 0;
   const tieneStickers = message.stickers.size > 0;
-
-  // Comandos casuales/juegos rápidos
-  if (contieneNombre && (textoLower.includes('dado') || textoLower.includes('lanza un dado'))) {
-    const resultadoDado = Math.floor(Math.random() * 6) + 1;
-    await message.reply(`salió un ${resultadoDado} mano xd`);
-    return;
-  }
-
-  if (contieneNombre && (textoLower.includes('moneda') || textoLower.includes('cara o cruz'))) {
-    const resMoneda = Math.random() < 0.5 ? 'cara' : 'cruz';
-    await message.reply(`salió ${resMoneda} mano, ya fue xd`);
-    return;
-  }
 
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
