@@ -24,22 +24,13 @@ function cargarSystemInstruction() {
   }
 }
 
-// Limpia y extrae la URL pura de Firebase eliminando corchetes, paréntesis o Markdown
+// Extrae la URL pura de Firebase
 function obtenerFirebaseUrl() {
   let url = process.env.FIREBASE_DATABASE_URL || '';
-  
-  // Extrae la URL si fue pegada como un link Markdown [text](http...)
   const matchMarkdown = url.match(/\((https?:\/\/[^\)]+)\)/);
-  if (matchMarkdown) {
-    url = matchMarkdown[1];
-  }
-
-  // Limpia caracteres no deseados, comillas o corchetes
+  if (matchMarkdown) url = matchMarkdown[1];
   url = url.replace(/[\[\]()'"]/g, '').trim();
-
-  if (url && !url.startsWith('http')) {
-    url = `https://${url}`;
-  }
+  if (url && !url.startsWith('http')) url = `https://${url}`;
   return url;
 }
 
@@ -48,34 +39,25 @@ const app = express();
 app.use(express.json());
 const PORT = process.env.PORT || 10000;
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
-// Middleware de autenticación con 'saidkey'
 function validarKey(req, res, next) {
   const { key } = req.body;
   const claveCorrecta = process.env.saidkey || process.env.SAIDKEY;
-  if (key && claveCorrecta && key === claveCorrecta) {
-    next();
-  } else {
-    res.status(401).json({ error: 'Clave no autorizada' });
-  }
+  if (key && claveCorrecta && key === claveCorrecta) next();
+  else res.status(401).json({ error: 'Clave no autorizada' });
 }
 
-// Endpoints del Dashboard
 app.post('/api/login', validarKey, (req, res) => res.json({ success: true }));
-app.post('/api/stats', validarKey, (req, res) => {
-  res.json({ guilds: client.guilds.cache.size, ping: client.ws.ping });
-});
+app.post('/api/stats', validarKey, (req, res) => res.json({ guilds: client.guilds.cache.size, ping: client.ws.ping }));
 app.post('/api/get-prompt', validarKey, (req, res) => res.json({ prompt: cargarSystemInstruction() }));
 app.post('/api/save-prompt', validarKey, (req, res) => {
   try {
     fs.writeFileSync(path.join(__dirname, 'system_instruction.txt'), req.body.prompt, 'utf8');
-    logEvent('Instrucciones de personalidad actualizadas.');
+    logEvent('Instrucciones actualizadas.');
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: 'No se pudo guardar el archivo' });
+    res.status(500).json({ error: 'No se pudo guardar' });
   }
 });
 app.post('/api/get-logs', validarKey, (req, res) => res.json({ logs: systemLogs }));
@@ -150,9 +132,7 @@ async function consultarGemini(parts, maxTokens = 120) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts }],
-          generationConfig: {
-            maxOutputTokens: maxTokens
-          }
+          generationConfig: { maxOutputTokens: maxTokens }
         })
       });
 
@@ -169,20 +149,15 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Funciones REST para Firebase Realtime Database
+// Funciones Firebase Realtime Database
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
-  if (!dbUrl || !dbUrl.startsWith('http')) {
-    logEvent('FIREBASE_DATABASE_URL no configurada o inválida.');
-    return null;
-  }
+  if (!dbUrl || !dbUrl.startsWith('http')) return null;
 
   try {
     const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
     const res = await fetch(`${cleanUrl}usuarios/${userId}.json`);
-    if (res.ok) {
-      return await res.json();
-    }
+    if (res.ok) return await res.json();
   } catch (err) {
     logEvent(`Error leyendo Firebase: ${err.message}`);
   }
@@ -191,10 +166,7 @@ async function obtenerMemoriaUsuario(userId) {
 
 async function guardarMemoriaUsuario(userId, mensaje, resumen) {
   const dbUrl = obtenerFirebaseUrl();
-  if (!dbUrl || !dbUrl.startsWith('http')) {
-    logEvent('Error: FIREBASE_DATABASE_URL debe ser una URL válida.');
-    return;
-  }
+  if (!dbUrl || !dbUrl.startsWith('http')) return;
 
   try {
     const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
@@ -208,25 +180,19 @@ async function guardarMemoriaUsuario(userId, mensaje, resumen) {
       })
     });
 
-    if (resPush.ok) {
-      logEvent(`[Firebase] Memoria guardada correctamente para usuario ${userId}`);
-    } else {
-      const errData = await resPush.text();
-      logEvent(`[Firebase Error] Código ${resPush.status}: ${errData}`);
-    }
+    if (resPush.ok) logEvent(`[Firebase] Memoria guardada para usuario ${userId}`);
   } catch (err) {
     logEvent(`Error conectando a Firebase: ${err.message}`);
   }
 }
 
-// Analizador en segundo plano para memoria de Firebase
 async function evaluarYGuardarMemoria(userId, mensajeUsuario) {
   try {
-    const promptEvaluacion = `Analiza si este mensaje enviado por un usuario contiene información personal importante, gustos, secretos o datos clave que valga la pena recordar a futuro.
+    const promptEvaluacion = `Analiza si este mensaje enviado por un usuario contiene información personal importante, gustos o datos clave a recordar.
 MENSAJE: "${mensajeUsuario}"
 
-Si NO contiene nada relevante de valor personal, responde ÚNICAMENTE con la palabra: NO.
-Si SÍ contiene datos importantes a recordar, responde con una sola línea corta que resuma el dato personal a guardar.`;
+Si NO contiene nada relevante de valor personal, responde ÚNICAMENTE: NO.
+Si SÍ contiene datos importantes, responde con una sola línea corta que resuma el dato a guardar.`;
 
     const resultado = await consultarGemini([{ text: promptEvaluacion }], 80);
     const textoRespuesta = resultado.trim();
@@ -239,10 +205,10 @@ Si SÍ contiene datos importantes a recordar, responde con una sola línea corta
   }
 }
 
-// Generación de estado para Klint
+// Generación autónoma de estados impredecibles
 async function actualizarEstadoIA() {
   try {
-    const promptEstado = 'Escribe un estado super corto de Discord (máximo 4 palabras) de algo que diría un usuario casual. Solo el texto sin comillas.';
+    const promptEstado = 'Escribe un estado super corto de Discord (máximo 4 palabras) de algo casual que diría un usuario de internet. Solo el texto sin comillas.';
     const textoGenerado = await consultarGemini([{ text: promptEstado }], 30);
     const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'modo chill';
 
@@ -259,8 +225,9 @@ async function actualizarEstadoIA() {
   }
 }
 
+// Programador con tiempos verdaderamente aleatorios (entre 8 y 40 minutos)
 function programarCambioEstadoRandom() {
-  const minutosRandom = Math.floor(Math.random() * (45 - 10 + 1)) + 10;
+  const minutosRandom = Math.floor(Math.random() * (40 - 8 + 1)) + 8;
   setTimeout(async () => {
     await actualizarEstadoIA();
     programarCambioEstadoRandom();
@@ -271,10 +238,9 @@ async function urlToGenerativePart(url) {
   try {
     const response = await fetch(url);
     const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
     return {
       inline_data: {
-        data: buffer.toString('base64'),
+        data: Buffer.from(arrayBuffer).toString('base64'),
         mime_type: response.headers.get('content-type') || 'image/png'
       }
     };
@@ -294,18 +260,21 @@ function obtenerEstadoPersonalizadoUsuario(member) {
   return 'Sin estado';
 }
 
-// Procesar interacción con la IA
+// Procesar interacción con la IA evitando confusión de usuarios
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     
-    const mensajesPrevios = await canal.messages.fetch({ limit: 4 });
+    // Obtener los últimos 6 mensajes del canal formateando autores de forma explícita
+    const mensajesPrevios = await canal.messages.fetch({ limit: 6 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
-      const usuario = m.author.username;
+      const usuarioNombre = m.author.username;
+      const usuarioId = m.author.id;
       const contenido = m.content;
       let estadoPersonalizado = 'Sin estado';
       if (m.member) estadoPersonalizado = obtenerEstadoPersonalizadoUsuario(m.member);
-      return `${usuario} [Estado: "${estadoPersonalizado}"]: ${contenido}`;
+      
+      return `[ID: ${usuarioId}] ${usuarioNombre} (Etiqueta: <@${usuarioId}>) [Estado: "${estadoPersonalizado}"]: ${contenido}`;
     }).join('\n');
 
     let contextoMemoria = '';
@@ -323,11 +292,13 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
+INSTRUCCIÓN MENCIONES: Si deseas etiquetar o mencionar a un usuario en tu respuesta, usa la sintaxis exacta de Discord <@ID_DEL_USUARIO>. No escribas @Nombre.
 ${contextoMemoria}
-HISTORIAL RECIENTE DEL CHAT:
+
+HISTORIAL RECIENTE Y ORDENADO DEL CHAT:
 ${historialFormateado}
 
-MENSAJE ACTUAL DE RESPUESTA:
+MENSAJE ACTUAL DE RESPUESTA A ATENDER (Enviado por ${usuarioAutor?.username || 'Usuario'} con ID ${usuarioAutor?.id}):
 ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
@@ -354,7 +325,7 @@ ${promptUsuario}`;
   }
 }
 
-// Manejo de Slash Commands (/klint)
+// Slash Commands (/klint)
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -372,7 +343,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// Manejo de Mensajes Directos y Servidores
+// Mensajes Directos y Servidores
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
 
