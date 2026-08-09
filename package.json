@@ -1,13 +1,17 @@
 {
   "name": "klint-bot",
   "version": "1.0.0",
-  "description": "Bot de Discord Klint impulsado por IA",
+  "description": "Bot autónomo de Discord Klint",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "google-tts-api": "^0.0.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
