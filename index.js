@@ -20,7 +20,7 @@ function cargarSystemInstruction() {
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     logEvent('Error al cargar system_instruction.txt');
-    return 'Eres Klint, un usuario más de la comunidad de Discord. Habla relajado y casual.';
+    return 'Eres Klint, un usuario con total libertad y autonomía en Discord. Habla casual y espontáneo.';
   }
 }
 
@@ -108,7 +108,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Inicialización de Discord Client
+// Inicialización de Discord Client con todos los Intents de presencia y miembros
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -118,16 +118,16 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.DirectMessages
   ],
-  partials: [Partials.Channel, Partials.Message]
+  partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
 });
 
 const commands = [
   new SlashCommandBuilder()
     .setName('klint')
-    .setDescription('Hazle una pregunta o habla con Klint')
+    .setDescription('Habla con Klint')
     .addStringOption(option =>
       option.setName('pregunta')
-        .setDescription('Lo que quieres preguntarle a Klint')
+        .setDescription('Lo que quieres decirle a Klint')
         .setRequired(true)
     )
 ].map(command => command.toJSON());
@@ -183,12 +183,12 @@ async function consultarGeminiMultimodelo(parts) {
   throw new Error(`Todos los modelos fallaron. Último error: ${ultimoError}`);
 }
 
-// Generación de estado autónomo en momentos impredecibles
+// Generación de estado autónomo en momentos totalmente impredecibles
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    let promptEstado = 'Genera un texto corto de estado para Discord de lo que estaría haciendo un usuario informal en su compu en este instante (máximo 5 palabras). Responde ÚNICAMENTE con el texto del estado.';
+    let promptEstado = 'Escribe un texto corto de estado para Discord de lo que estaría haciendo o pensando un usuario informal en su PC en este instante (máximo 5 palabras). Responde ÚNICAMENTE con el texto del estado.';
     if (peticionManual) {
-      promptEstado = `Genera un estado corto de Discord basado en esta solicitud: ${peticionManual}. Máximo 5 palabras, responde solo con el estado.`;
+      promptEstado = `Genera un estado corto de Discord basado en esta solicitud: ${peticionManual}. Máximo 5 palabras, responde solo con el texto.`;
     }
 
     const textoGenerado = await consultarGeminiMultimodelo([{ text: promptEstado }]);
@@ -208,16 +208,16 @@ async function actualizarEstadoIA(peticionManual = null) {
   }
 }
 
-// Programación a tiempos totalmente aleatorios (entre 5 y 60 minutos)
+// Tiempos aleatorios e impredecibles para cambiar presencia
 function programarCambioEstadoRandom() {
-  const minutosRandom = Math.floor(Math.random() * (60 - 5 + 1)) + 5;
+  const minutosRandom = Math.floor(Math.random() * (45 - 5 + 1)) + 5;
   setTimeout(async () => {
     await actualizarEstadoIA();
     programarCambioEstadoRandom();
   }, minutosRandom * 60 * 1000);
 }
 
-// Función para revisar canales e iniciar conversación de la nada si están inactivos
+// Bucle autónomo para iniciar conversación si un chat está inactivo
 function iniciarBucleInactividad() {
   setInterval(async () => {
     try {
@@ -230,14 +230,14 @@ function iniciarBucleInactividad() {
 
         if (ultimoMensaje) {
           const tiempoInactivo = Date.now() - ultimoMensaje.createdTimestamp;
-          // Si han pasado más de 3 horas sin mensajes, Klint habla de la nada
+          // Si han pasado más de 3 horas sin hablar
           if (tiempoInactivo > 3 * 60 * 60 * 1000) {
             await canalTexto.sendTyping();
-            const promptBreaker = `${cargarSystemInstruction()}\nEl chat ha estado inactivo por varias horas. Lanza un comentario o pregunta casual e informal para romper el hielo en el servidor.`;
+            const promptBreaker = `${cargarSystemInstruction()}\nEl chat está muerto hace horas. Di algo totalmente casual, un pensamiento aleatorio o una pregunta libre para romper el silencio.`;
             const respuesta = await consultarGeminiMultimodelo([{ text: promptBreaker }]);
             if (respuesta) {
               await canalTexto.send(respuesta);
-              logEvent(`Klint inició conversación por inactividad en ${guild.name}`);
+              logEvent(`Klint inició conversación autónoma en ${guild.name}`);
             }
           }
         }
@@ -245,7 +245,7 @@ function iniciarBucleInactividad() {
     } catch (e) {
       logEvent(`Error en bucle de inactividad: ${e.message}`);
     }
-  }, 60 * 60 * 1000); // Revisa cada hora
+  }, 60 * 60 * 1000);
 }
 
 async function urlToGenerativePart(url) {
@@ -266,7 +266,36 @@ async function urlToGenerativePart(url) {
   }
 }
 
-async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
+// Extrae los datos detallados de presencia, actividad y estado personalizado del usuario
+function obtenerDetallesPresencia(member, user) {
+  if (!member || !member.presence) return '[Visibilidad: Desconocida/Offline]';
+
+  const pres = member.presence;
+  const estadoVis = pres.status;
+  const actividadesList = [];
+
+  if (pres.activities && pres.activities.length > 0) {
+    pres.activities.forEach(act => {
+      if (act.type === ActivityType.Custom) {
+        actividadesList.push(`Estado personalizado: "${act.state || act.name}"`);
+      } else if (act.type === ActivityType.Playing) {
+        actividadesList.push(`Jugando: ${act.name}`);
+      } else if (act.type === ActivityType.Listening) {
+        actividadesList.push(`Escuchando: ${act.name}`);
+      } else if (act.type === ActivityType.Streaming) {
+        actividadesList.push(`Stremeando: ${act.name}`);
+      } else {
+        actividadesList.push(`Actividad: ${act.name}`);
+      }
+    });
+  }
+
+  const actTexto = actividadesList.length > 0 ? ` | ${actividadesList.join(', ')}` : '';
+  return `[Visibilidad: ${estadoVis}${actTexto}]`;
+}
+
+// Procesar interacción con la IA
+async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     const mensajesPrevios = await canal.messages.fetch({ limit: 10 });
@@ -274,29 +303,31 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuario = m.author.username;
       const contenido = m.content;
-      
-      // Captura de actividades, estado personalizado y estado de visibilidad del usuario
-      let estadoInfo = '';
+      let presenciaInfo = '';
+
       if (m.member) {
-        const pres = m.member.presence;
-        const statusVis = pres ? pres.status : 'offline';
-        let actividadText = '';
-        
-        if (pres && pres.activities.length > 0) {
-          actividadText = pres.activities.map(a => `${a.type === ActivityType.Custom ? 'Estado' : 'Jugando/Escuchando'}: ${a.name}`).join(' | ');
-        }
-        estadoInfo = ` [Visibilidad: ${statusVis}${actividadText ? ' | ' + actividadText : ''}]`;
+        presenciaInfo = obtenerDetallesPresencia(m.member, m.author);
       }
 
-      return `${usuario}${estadoInfo}: ${contenido}`;
+      return `${usuario}${presenciaInfo}: ${contenido}`;
     }).join('\n');
+
+    const tipoEntorno = esDM ? 'MENSAJE PRIVADO DIRECTO (DM)' : 'CHAT PÚBLICO DE SERVIDOR';
+    
+    let infoAutorDM = '';
+    if (esDM && usuarioAutor) {
+      infoAutorDM = `DATOS DEL USUARIO EN DM: ${usuarioAutor.username}`;
+    }
 
     const promptText = `${systemInstruction}
 
-HISTORIAL RECIENTE DEL CHAT (con datos de presencia y estado de usuarios):
+ENTORNO ACTUAL: ${tipoEntorno}
+${infoAutorDM}
+
+HISTORIAL RECIENTE DE ESTE CHAT:
 ${historialFormateado}
 
-PREGUNTA/MENSAJE ACTUAL A RESPONDER:
+MENSAJE ACTUAL A ATENDER:
 ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
@@ -318,13 +349,15 @@ ${promptUsuario}`;
   }
 }
 
+// Manejo de Slash Commands (/klint)
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'klint') {
     await interaction.deferReply();
     const pregunta = interaction.options.getString('pregunta');
-    const respuesta = await procesarRespuestaIA(interaction.channel, pregunta);
+    const esDM = !interaction.guild;
+    const respuesta = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user);
     
     if (respuesta.length > 2000) {
       await interaction.editReply(respuesta.slice(0, 1995) + '...');
@@ -334,6 +367,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
+// Manejo de Mensajes Directos, Menciones y Nombres
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
 
@@ -345,11 +379,11 @@ client.on('messageCreate', async message => {
   const contieneNombre = patronNombres.test(textoLower);
   const tieneAdjuntos = message.attachments.size > 0;
 
-  // Si le piden cambiar de estado directamente en el chat
+  // Permite solicitar cambio de estado directamente en la conversación
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
     await actualizarEstadoIA(message.content);
-    await message.reply('listo, ya cambié mi estado de actividad.');
+    await message.reply('listo, ya cambié mi estado.');
     return;
   }
 
@@ -357,12 +391,21 @@ client.on('messageCreate', async message => {
     await message.channel.sendTyping();
     
     const adjuntosArray = Array.from(message.attachments.values());
-    const respuesta = await procesarRespuestaIA(message.channel, message.content, adjuntosArray);
+    const respuesta = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author);
     
+    // Si es mensaje en servidor, responde en el hilo/canal de forma limpia; si es DM, envía directo sin linkear
     if (respuesta.length > 2000) {
-      await message.reply(respuesta.slice(0, 1995) + '...');
+      if (esDM) {
+        await message.channel.send(respuesta.slice(0, 1995) + '...');
+      } else {
+        await message.reply(respuesta.slice(0, 1995) + '...');
+      }
     } else {
-      await message.reply(respuesta);
+      if (esDM) {
+        await message.channel.send(respuesta);
+      } else {
+        await message.reply(respuesta);
+      }
     }
   }
 });
