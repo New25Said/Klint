@@ -19,7 +19,7 @@ function logEvent(msg, esError = false) {
   if (systemLogs.length > 50) systemLogs.pop();
 }
 
-// Feature Toggles (Control en tiempo real desde la Web)
+// Control en tiempo real desde la Web
 const featureToggles = {
   audio: true,
   memes: true,
@@ -30,7 +30,7 @@ const featureToggles = {
 process.on('unhandledRejection', (reason) => logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true));
 process.on('uncaughtException', (err) => logEvent(`Excepción no capturada: ${err.stack || err.message}`, true));
 
-// Instanciación temprana del Cliente Discord
+// Instanciación del Cliente Discord
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -60,7 +60,7 @@ function obtenerFirebaseUrl() {
   if (matchMarkdown) url = matchMarkdown[1];
   url = url.replace(/[\[\]()'"]/g, '').trim();
   if (url && !url.startsWith('http')) url = `https://${url}`;
-  return url.replace(/\/+$/, ''); // Elimina diagonales al final para evitar dobles slashes
+  return url.replace(/\/+$/, '');
 }
 
 // Servidor Express
@@ -100,7 +100,6 @@ app.post('/api/force-status', validarKey, async (req, res) => {
   res.json({ success: true });
 });
 
-// Control de Features desde la web
 app.post('/api/toggle-feature', validarKey, (req, res) => {
   const { feature, value } = req.body;
   if (featureToggles.hasOwnProperty(feature)) {
@@ -112,7 +111,6 @@ app.post('/api/toggle-feature', validarKey, (req, res) => {
   }
 });
 
-// Obtener todas las memorias guardadas en Firebase
 app.post('/api/get-memories', validarKey, async (req, res) => {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl) return res.json({ users: {} });
@@ -125,7 +123,6 @@ app.post('/api/get-memories', validarKey, async (req, res) => {
   }
 });
 
-// Eliminar memoria de un usuario
 app.post('/api/delete-memory', validarKey, async (req, res) => {
   const { userId, memoryKey } = req.body;
   const dbUrl = obtenerFirebaseUrl();
@@ -139,7 +136,6 @@ app.post('/api/delete-memory', validarKey, async (req, res) => {
   }
 });
 
-// Enviar mensaje a un canal de Discord desde la Web
 app.post('/api/send-discord-msg', validarKey, async (req, res) => {
   const { channelId, message } = req.body;
   try {
@@ -155,7 +151,6 @@ app.post('/api/send-discord-msg', validarKey, async (req, res) => {
   }
 });
 
-// Endpoint de Reset Profundo
 app.post('/api/deep-reset', validarKey, async (req, res) => {
   logEvent('Iniciando proceso de Limpieza Profunda...');
   systemLogs = [];
@@ -180,7 +175,6 @@ app.post('/api/deep-reset', validarKey, async (req, res) => {
   res.json({ success: true, message: 'Limpieza de RAM y estado completada en el servidor actual.' });
 });
 
-// Chat Web
 app.post('/api/web-chat', async (req, res) => {
   if (!featureToggles.webChat) {
     return res.json({ response: 'el chat web está pausado temporalmente por el admin xd' });
@@ -253,9 +247,9 @@ client.once('clientReady', async () => {
 
   await actualizarEstadoIA();
   programarCambioEstadoRandom();
+  iniciarMonitoreoRevivirChat();
 });
 
-// API CheapShark para Ofertas de Juegos
 async function buscarOfertasJuegos() {
   try {
     const res = await fetch('https://www.cheapshark.com/api/1.0/deals?storeID=1&upperPrice=15&pageSize=5');
@@ -269,16 +263,11 @@ async function buscarOfertasJuegos() {
   return 'No encontré ofertas en este momento mano xd';
 }
 
-// Modelos Gemini Válidos
+// Modelos Oficiales Activos Gemini API v1beta
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
-'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
 ];
 
 async function consultarGemini(parts, maxTokens = 120) {
@@ -306,30 +295,26 @@ async function consultarGemini(parts, maxTokens = 120) {
     }
   }
 
-  throw new Error(`Error en API: ${ultimoError}`);
+  throw new Error(`Error en API Gemini: ${ultimoError}`);
 }
 
-// Búsqueda de GIFs con GIPHY API Key de Render (con fallback a Tenor)
-async function buscarGifsReales(busqueda, cantidad = 1) {
+// Búsqueda de GIFs estrictamente MÁXIMO 1
+async function buscarGifsReales(busqueda) {
   if (!featureToggles.gifs) return [];
-  const limiteMax = Math.min(Math.max(cantidad, 1), 2);
   const termino = busqueda || 'funny meme';
   const urlsEncontradas = [];
 
-  // Intento con GIPHY (Prioridad usando GIPHY_API_KEY)
   const giphyKey = process.env.GIPHY_API_KEY;
   if (giphyKey) {
     try {
-      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${giphyKey}&q=${encodeURIComponent(termino)}&limit=10&rating=g`;
+      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${giphyKey}&q=${encodeURIComponent(termino)}&limit=1&rating=g`;
       const resGiphy = await fetch(urlGiphy);
       if (resGiphy.ok) {
         const dataGiphy = await resGiphy.json();
         if (dataGiphy.data && dataGiphy.data.length > 0) {
-          for (let i = 0; i < limiteMax && i < dataGiphy.data.length; i++) {
-            const gifUrl = dataGiphy.data[i].images?.original?.url || dataGiphy.data[i].images?.downsized_medium?.url;
-            if (gifUrl) urlsEncontradas.push(gifUrl);
-          }
-          if (urlsEncontradas.length > 0) return urlsEncontradas;
+          const gifUrl = dataGiphy.data[0].images?.original?.url || dataGiphy.data[0].images?.downsized_medium?.url;
+          if (gifUrl) urlsEncontradas.push(gifUrl);
+          return urlsEncontradas;
         }
       }
     } catch (err) {
@@ -337,18 +322,15 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
     }
   }
 
-  // Fallback con Tenor API
   try {
-    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=10`;
+    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=1`;
     const res = await fetch(urlTenor);
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
-        for (let i = 0; i < limiteMax && i < data.results.length; i++) {
-          const gifDirecto = data.results[i].media?.[0]?.gif?.url || data.results[i].url;
-          if (gifDirecto) urlsEncontradas.push(gifDirecto);
-        }
-        if (urlsEncontradas.length > 0) return urlsEncontradas;
+        const gifDirecto = data.results[0].media?.[0]?.gif?.url || data.results[0].url;
+        if (gifDirecto) urlsEncontradas.push(gifDirecto);
+        return urlsEncontradas;
       }
     }
   } catch (err) {
@@ -358,7 +340,6 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
   return ['https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdWZ4OHl0ZG9zcHNmd3NwcjExMjl2MmVlZnVpM2VydjBjcmsxMG90ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7abKhOpu0NwenH3O/giphy.gif'];
 }
 
-// Generador de Memes en Imagen Real (Memegen.link spec)
 function generarUrlMemeImagen(textoMeme) {
   if (!featureToggles.memes) return null;
   try {
@@ -395,7 +376,6 @@ function generarUrlMemeImagen(textoMeme) {
   }
 }
 
-// Generador nativo de Audios
 function obtenerUrlAudioVozNativo(texto) {
   if (!featureToggles.audio) return null;
   try {
@@ -408,7 +388,6 @@ function obtenerUrlAudioVozNativo(texto) {
   }
 }
 
-// REST API para Firebase
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl) return null;
@@ -470,7 +449,6 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// ESTADO PERSONALIZADO ÚNICO
 async function actualizarEstadoIA(peticionManual = null) {
   try {
     let promptEstado = 'Inventa un estado de perfil de Discord informal y espontáneo (máximo 5 palabras). Todo en minúsculas, casual, sin puntos ni comillas.';
@@ -499,12 +477,42 @@ async function actualizarEstadoIA(peticionManual = null) {
   }
 }
 
+// Dado de cambio de estado entre 5 y 15 minutos
 function programarCambioEstadoRandom() {
-  const minutosRandom = Math.floor(Math.random() * (35 - 7 + 1)) + 7;
+  const minutosRandom = Math.floor(Math.random() * (15 - 5 + 1)) + 5;
   setTimeout(async () => {
     await actualizarEstadoIA();
     programarCambioEstadoRandom();
   }, minutosRandom * 60 * 1000);
+}
+
+// Monitoreo para Revivir Chat Inactivo (2 Horas de silencio)
+function iniciarMonitoreoRevivirChat() {
+  setInterval(async () => {
+    if (!client.isReady()) return;
+
+    for (const guild of client.guilds.cache.values()) {
+      try {
+        const textChannels = guild.channels.cache.filter(c => c.isTextBased() && c.permissionsFor(guild.members.me).has('SendMessages'));
+        for (const channel of textChannels.values()) {
+          const messages = await channel.messages.fetch({ limit: 1 });
+          const lastMsg = messages.first();
+          if (lastMsg) {
+            const horasInactivo = (Date.now() - lastMsg.createdTimestamp) / (1000 * 60 * 60);
+            if (horasInactivo >= 2) {
+              const promptRevivir = "El chat ha estado callado por horas. Di una sola frase muy corta y casual en minúsculas para revivir el chat o preguntar qué hacen.";
+              const frase = await consultarGemini([{ text: promptRevivir }], 40);
+              await channel.send(frase.toLowerCase().trim());
+              logEvent(`Chat revivido en el canal ${channel.name} de ${guild.name}`);
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        logEvent(`Error verificando inactividad de chat: ${err.message}`, true);
+      }
+    }
+  }, 30 * 60 * 1000); // Revisa cada 30 min
 }
 
 async function urlToGenerativePart(url) {
@@ -523,73 +531,20 @@ async function urlToGenerativePart(url) {
   }
 }
 
-async function obtenerPresenciaCualquierEntorno(user, guild = null) {
-  let member = null;
-
-  if (guild) {
-    try { member = await guild.members.fetch(user.id); } catch (e) {}
-  } else if (client.isReady()) {
-    for (const g of client.guilds.cache.values()) {
-      try {
-        member = await g.members.fetch(user.id);
-        if (member && member.presence) break;
-      } catch (e) {}
-    }
-  }
-
-  if (!member || !member.presence) return 'Sin estado/Offline';
-
-  const pres = member.presence;
-  let detalles = [];
-
-  if (pres.activities && pres.activities.length > 0) {
-    pres.activities.forEach(act => {
-      if (act.type === 4 || act.type === ActivityType.Custom) {
-        const texto = act.state || act.name || '';
-        if (texto) detalles.push(`Estado de perfil: "${texto}"`);
-      } else if (act.name === 'Spotify') {
-        const cancion = act.details ? `${act.details} de ${act.state}` : 'Spotify';
-        detalles.push(`Escuchando en Spotify: ${cancion}`);
-      } else if (act.name) {
-        detalles.push(`Jugando: ${act.name}`);
-      }
-    });
-  }
-
-  return detalles.length > 0 ? detalles.join(' | ') : 'En línea (sin actividad visible)';
-}
-
-async function obtenerDetallesIntegrantesServidor(guild) {
+function obtenerDetallesIntegrantesServidorOptimizado(guild) {
   if (!guild) return 'Entorno DM (Sin lista masiva de servidor)';
   try {
-    const miembros = await guild.members.fetch();
+    const miembros = guild.members.cache;
     const resumenMiembros = [];
 
     miembros.forEach(m => {
       const esBot = m.user.bot ? '[BOT]' : '[USUARIO]';
-      const pres = m.presence;
-      let estadoTexto = 'Sin estado';
-      let actividadTexto = '';
-
-      if (pres && pres.activities && pres.activities.length > 0) {
-        pres.activities.forEach(act => {
-          if (act.type === 4 || act.type === ActivityType.Custom) {
-            estadoTexto = act.state || act.name || 'Sin estado';
-          } else if (act.name === 'Spotify') {
-            actividadTexto = ` (Spotify: ${act.details} - ${act.state})`;
-          } else if (act.name) {
-            actividadTexto = ` (Jugando: ${act.name})`;
-          }
-        });
-      }
-
-      resumenMiembros.push(`- ${m.user.username} (Tag: <@${m.id}>) ${esBot} [Perfil: "${estadoTexto}"${actividadTexto}]`);
+      resumenMiembros.push(`- ${m.user.username} (Tag: <@${m.id}>) ${esBot}`);
     });
 
-    return resumenMiembros.slice(0, 25).join('\n');
+    return resumenMiembros.slice(0, 20).join('\n');
   } catch (err) {
-    logEvent(`Error obteniendo integrantes del servidor: ${err.message}`, true);
-    return 'No se pudo sincronizar la lista de miembros';
+    return 'Miembros del servidor cargados en caché local.';
   }
 }
 
@@ -597,9 +552,7 @@ async function obtenerDetallesIntegrantesServidor(guild) {
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
-    
-    const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
-    const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
+    const miembrosServidorTexto = obtenerDetallesIntegrantesServidorOptimizado(guild);
 
     let historialFormateado = '';
     let conteoPrevio = 0;
@@ -633,7 +586,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
 
-    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs|dos gifs)\b/i.test(promptUsuario);
+    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
     const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
 
@@ -643,13 +596,12 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     } else if (pideMemeImagen) {
       instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea un meme corto en dos líneas usando el tag [GENERAR_MEME: texto arriba | texto abajo]. NUNCA escribas el tag en el texto visible del mensaje.";
     } else if (pideGifExplicitamente) {
-      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje. Máximo puedes pedir 2.";
+      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje. Se enviará únicamente 1 GIF.";
     }
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-DATOS DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
 ${instruccionExtra}
 ${contextoMemoriaAutor}
 
@@ -693,9 +645,7 @@ ${promptUsuario}`;
     if (matchGif || pideGifExplicitamente) {
       let terminoBusqueda = matchGif ? matchGif[1].trim() : promptUsuario.replace(/\b(manda|pasa|envia|un|gif|gifs|de)\b/gi, '').trim();
       if (!terminoBusqueda) terminoBusqueda = 'funny meme';
-      
-      const cantidadPedida = /\b(dos|2|un par)\b/i.test(promptUsuario) ? 2 : 1;
-      gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda, cantidadPedida);
+      gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda);
     }
 
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
@@ -715,7 +665,7 @@ ${promptUsuario}`;
   }
 }
 
-// Helper para construir tablero del Tres en Raya
+// Helper para construir tablero del Tres en Raya (Fijados símbolos visibles válidos)
 function construirTableroTicTacToe(tablero) {
   const rows = [];
   for (let i = 0; i < 3; i++) {
@@ -725,7 +675,7 @@ function construirTableroTicTacToe(tablero) {
       const valor = tablero[idx];
       const btn = new ButtonBuilder()
         .setCustomId(`tictactoe_${i}_${j}`)
-        .setLabel(valor === '-' ? ' ' : valor)
+        .setLabel(valor === '-' ? '➖' : valor)
         .setStyle(valor === '❌' ? ButtonStyle.Danger : valor === '⭕' ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setDisabled(valor !== '-');
       row.addComponents(btn);
@@ -763,11 +713,12 @@ client.on('interactionCreate', async interaction => {
       if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
 
       let mensajeFinal = respuesta;
-      if (gifsUrls.length > 0) {
-        mensajeFinal = `${respuesta}\n${gifsUrls.join('\n')}`.trim();
-      }
-
       await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
+
+      // Si Klint requiere enviar el GIF o contenido extra por separado
+      if (gifsUrls.length > 0) {
+        await interaction.followUp({ content: gifsUrls[0] });
+      }
     }
 
     if (interaction.commandName === 'status') {
@@ -787,7 +738,7 @@ client.on('interactionCreate', async interaction => {
 
       const memeTexto = `cuando ${nick} usa /status | y klint ya se acuerda de todo xd`;
       const memeUrl = generarUrlMemeImagen(memeTexto);
-      const gifsUrls = await buscarGifsReales('cool robot', 1);
+      const gifsUrls = await buscarGifsReales('cool robot');
 
       const archivosAdjuntos = [];
       if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
@@ -802,13 +753,15 @@ ${resumenMemoria}
 ⚡ **CAPACIDADES ACTIVAS DE KLINT:**
 1. 🎙️ **Notas de voz:** Pídeme "manda un audio" y te responderé en MP3.
 2. 🖼️ **Generador de Memes e Imágenes:** Pídeme "haz un meme" y crearé una imagen personalizada.
-3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir hasta 2 GIFs animados reales.
-4. 👀 **Presencia en Tiempo Real:** Leo tu estado personalizado de perfil y si escuchas Spotify o juegas.
-5. 💬 **Memoria Persistente:** Recuerdo tus gustos y conversaciones en Firebase.
-
-${gifsUrls.join('\n')}`;
+3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir un GIF animado real.
+4. 👀 **Presencia en Tiempo Real:** Reviso actividad del servidor sin saturar Gateway.
+5. 💬 **Memoria Persistente:** Recuerdo tus gustos y conversaciones en Firebase.`;
 
       await interaction.editReply({ content: mensajeStatus, files: archivosAdjuntos });
+
+      if (gifsUrls.length > 0) {
+        await interaction.followUp({ content: gifsUrls[0] });
+      }
     }
 
     if (interaction.commandName === 'ofertas') {
@@ -832,7 +785,6 @@ ${gifsUrls.join('\n')}`;
     const c = parseInt(parts[2]);
     const idxClick = r * 3 + c;
 
-    // Extraer estado actual del tablero desde la interfaz de botones
     let board = [];
     message.components.forEach(row => {
       row.components.forEach(btn => {
@@ -847,7 +799,6 @@ ${gifsUrls.join('\n')}`;
       return interaction.reply({ content: 'Esa casilla ya está ocupada pe mano.', ephemeral: true });
     }
 
-    // Jugada del Usuario
     board[idxClick] = '❌';
 
     let ganador = verificarGanadorTicTacToe(board);
@@ -856,7 +807,6 @@ ${gifsUrls.join('\n')}`;
       return interaction.update({ content: `❌ **TRES EN RAYA DE KLINT** - ${statusText}`, components: construirTableroTicTacToe(board) });
     }
 
-    // Jugada de Klint (IA / Bot)
     const casillasLibres = board.map((v, i) => v === '-' ? i : null).filter(v => v !== null);
     if (casillasLibres.length > 0) {
       const eleccionKlint = casillasLibres[Math.floor(Math.random() * casillasLibres.length)];
@@ -908,18 +858,19 @@ client.on('messageCreate', async message => {
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
       if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
 
-      let textoFinal = respuesta;
-      if (gifsUrls.length > 0) {
-        textoFinal = `${respuesta}\n${gifsUrls.join('\n')}`.trim();
-      }
-
-      const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
+      const textoLimpio = respuesta.length > 2000 ? respuesta.slice(0, 1995) + '...' : respuesta;
       const contenidoMensaje = textoLimpio || (archivosAdjuntos.length > 0 ? 'aquí tienes' : 'xd');
 
+      // Primer Envío principal
       if (esDM || conteoMensajes <= 3) {
         await message.channel.send({ content: contenidoMensaje, files: archivosAdjuntos });
       } else {
         await message.reply({ content: contenidoMensaje, files: archivosAdjuntos });
+      }
+
+      // Segundo mensaje en caso de requerir enviar GIF por separado o enlace dinámico
+      if (gifsUrls.length > 0) {
+        await message.channel.send(gifsUrls[0]);
       }
     }
   } catch (err) {
