@@ -1,184 +1,186 @@
-const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder } = require('discord.js');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const express = require('express');
-const path = require('path');
-
-// Express Server para servir index.html y mantener Render activo
-const app = express();
-const PORT = process.env.PORT || 10000;
-
-// Servir el archivo index.html en la raíz "/"
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-app.listen(PORT, () => {
-  console.log(`Servidor HTTP activo en puerto ${PORT}`);
-});
-
-// Auto-ping con la URL en duro para Render Free Tier (cada 10 minutos)
-const RENDER_URL = 'https://klint-gxww.onrender.com';
-setInterval(() => {
-  fetch(RENDER_URL)
-    .then(() => console.log('Self-ping exitoso para mantener Klint activo.'))
-    .catch((err) => console.error('Error en self-ping:', err));
-}, 10 * 60 * 1000);
-
-// Inicialización de la API de Gemini con el modelo gemini-3.6-flash
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
-
-// Inicialización del Cliente de Discord con los Intents necesarios
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildPresences,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages
-  ],
-  partials: [Partials.Channel, Partials.Message]
-});
-
-// Prompt base del sistema para definir la personalidad de Klint
-const SYSTEM_INSTRUCTION = `
-Eres Klint, un usuario más de la comunidad de Discord. 
-- Tu estilo es natural, relaxed, informal y casual. Usa abreviaciones o formas de escribir comunes en internet de forma orgánica, sin sonar robótico ni forzado a ser humano.
-- Responde de forma concisa o detallada según lo requiera el contexto del chat.
-- Analiza todo el historial reciente enviado para entender si te están hablando a ti, si la conversación terminó, o si están escribiendo ideas en varios mensajes separados.
-- No interrumpas conversaciones ajenas si no te están invocando o mencionando directamente.
-`;
-
-// Registro de Slash Commands
-const commands = [
-  new SlashCommandBuilder()
-    .setName('klint')
-    .setDescription('Hazle una pregunta a Klint')
-    .addStringOption(option =>
-      option.setName('pregunta')
-        .setDescription('Lo que quieres preguntarle a Klint')
-        .setRequired(true)
-    )
-].map(command => command.toJSON());
-
-// Evento clientReady
-client.once('clientReady', async () => {
-  console.log(`Klint ha iniciado sesión como ${client.user.tag}`);
-
-  // Registrar comandos slash globalmente
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  try {
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands }
-    );
-    console.log('Comandos /klint registrados correctamente.');
-  } catch (error) {
-    console.error('Error al registrar comandos slash:', error);
-  }
-
-  // Bucle autónomo para cambiar estado y actividad de forma independiente
-  actualizarEstadoAutonomo();
-  setInterval(actualizarEstadoAutonomo, 20 * 60 * 1000); // Cambia cada 20 minutos
-});
-
-// Función para cambiar de estado (Online, Idle, DND) y actividad sin depender de mensajes
-async function actualizarEstadoAutonomo() {
-  try {
-    const promptEstado = 'Genera un estado corto de Discord para un usuario casual (máximo 5 palabras). Responde SOLO con el texto del estado, sin comillas ni explicaciones.';
-    const result = await model.generateContent(promptEstado);
-    const response = await result.response;
-    const textoEstado = response.text()?.trim() || 'viendo el chat';
-
-    const estados = ['online', 'idle', 'dnd'];
-    const estadoAleatorio = estados[Math.floor(Math.random() * estados.length)];
-
-    client.user.setPresence({
-      status: estadoAleatorio,
-      activities: [{ name: textoEstado, type: ActivityType.Custom }]
-    });
-    console.log(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
-  } catch (error) {
-    console.error('Error al actualizar estado autónomo:', error);
-  }
-}
-
-// Función auxiliar para compilar contexto del canal e interactuar con la IA
-async function procesarRespuestaIA(canal, promptUsuario) {
-  try {
-    // Obtener los últimos 10 mensajes del canal para mantener contexto
-    const mensajesPrevios = await canal.messages.fetch({ limit: 10 });
-    const historialFormateado = mensajesPrevios.reverse().map(m => {
-      const usuario = m.author.username;
-      const contenido = m.content;
-      
-      let actividad = '';
-      if (m.member?.presence?.activities?.length) {
-        const act = m.member.presence.activities[0];
-        actividad = ` [Actividad: ${act.name}]`;
-      }
-      return `${usuario}${actividad}: ${contenido}`;
-    }).join('\n');
-
-    const promptCompleto = `${SYSTEM_INSTRUCTION}
-
-HISTORIAL RECIENTE DEL CHAT:
-${historialFormateado}
-
-PREGUNTA/MENSAJE ACTUAL A RESPONDER:
-${promptUsuario}`;
-
-    const result = await model.generateContent(promptCompleto);
-    const response = await result.response;
-
-    return response.text() || 'banco de memoria vacío, no sé qué decir jsjs';
-  } catch (error) {
-    console.error('Error en Gemini API:', error);
-    return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
-  }
-}
-
-// Manejo de Slash Commands (/klint)
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  if (interaction.commandName === 'klint') {
-    await interaction.deferReply();
-    const pregunta = interaction.options.getString('pregunta');
-    const respuesta = await procesarRespuestaIA(interaction.channel, pregunta);
-    
-    if (respuesta.length > 2000) {
-      await interaction.editReply(respuesta.slice(0, 1995) + '...');
-    } else {
-      await interaction.editReply(respuesta);
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Klint - Un usuario más en tu Discord</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;600;700;800&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #313338;
+      --bg-secondary: #2b2d31;
+      --bg-tertiary: #1e1f22;
+      --brand-color: #5865F2;
+      --brand-hover: #4752C4;
+      --text-normal: #dbdee1;
+      --text-muted: #949ba4;
+      --green-status: #23a55a;
     }
-  }
-});
 
-// Manejo de Mensajes Directos y menciones por nombre en Servidores
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-
-  const esDM = !message.guild;
-  const textoLower = message.content.toLowerCase();
-  
-  // Detección de nombres: clin, klin, klint, klinty
-  const patronNombres = /\b(clin|klin|klint|klinty)\b/i;
-  const fueMencionadoDirectamente = message.mentions.has(client.user.id);
-  const contieneNombre = patronNombres.test(textoLower);
-
-  if (esDM || fueMencionadoDirectamente || contieneNombre) {
-    await message.channel.sendTyping();
-    const respuesta = await procesarRespuestaIA(message.channel, message.content);
-    
-    if (respuesta.length > 2000) {
-      await message.reply(respuesta.slice(0, 1995) + '...');
-    } else {
-      await message.reply(respuesta);
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
-  }
-});
 
-// Login en Discord
-client.login(process.env.DISCORD_TOKEN);
+    body {
+      background-color: var(--bg-tertiary);
+      color: var(--text-normal);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 900px;
+      width: 100%;
+    }
+
+    .hero {
+      background: var(--bg-primary);
+      border-radius: 16px;
+      padding: 3rem 2rem;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      margin-bottom: 2rem;
+    }
+
+    .avatar-wrapper {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      margin: 0 auto 1.5rem auto;
+    }
+
+    .avatar {
+      width: 100%;
+      height: 100%;
+      background: var(--brand-color);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: white;
+    }
+
+    .status-badge {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      width: 22px;
+      height: 22px;
+      background-color: var(--green-status);
+      border: 4px solid var(--bg-primary);
+      border-radius: 50%;
+    }
+
+    h1 {
+      font-size: 2.8rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 2rem auto;
+      line-height: 1.5;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background-color: var(--brand-color);
+      color: white;
+      padding: 0.9rem 2rem;
+      border-radius: 28px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.05rem;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background-color: var(--brand-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(88, 101, 242, 0.4);
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      background: var(--bg-secondary);
+      padding: 1.75rem;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .feature-card h3 {
+      color: #ffffff;
+      font-size: 1.2rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <div class="avatar-wrapper">
+        <div class="avatar">K</div>
+        <div class="status-badge" title="En línea"></div>
+      </div>
+      <h1>Klint Bot</h1>
+      <p class="subtitle">La IA multitarea diseñada para chatear en Discord como un miembro más del servidor. Reconoce imágenes, analiza contexto y mantiene presencia activa.</p>
+      <div class="btn-group">
+        <a class="btn" href="https://discord.com/oauth2/authorize?client_id=1535688886326530198&permissions=8&integration_type=0&scope=bot+applications.commands" target="_blank">Añadir a Discord</a>
+      </div>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3>⚡ Multitarea</h3>
+        <p>Procesa múltiples mensajes continuos sin bloquearse ni perder el hilo del chat.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🖼️ Visión Multimodal</h3>
+        <p>Reconoce imágenes, memes y archivos adjuntos enviado por los usuarios en tiempo real.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🟢 Presencia Autónoma</h3>
+        <p>Cambia su estado de actividad (En línea, Ausente, No molestar) e historial de estado dinámicamente.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
