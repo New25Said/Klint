@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 // System Logs
-const systemLogs = [];
+let systemLogs = [];
 function logEvent(msg, esError = false) {
   const timestamp = new Date().toLocaleTimeString();
   const prefijo = esError ? '[ERROR ❌]' : '[INFO ℹ️]';
@@ -77,22 +77,37 @@ app.post('/api/force-status', validarKey, async (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/trigger-deploy', validarKey, async (req, res) => {
+// Endpoint de Reset Profundo (Limpieza de RAM + Purga de Logs + Re-deploy de Render)
+app.post('/api/deep-reset', validarKey, async (req, res) => {
+  logEvent('Iniciando proceso de Limpieza Profunda...');
+  
+  // 1. Limpiar caché/logs en memoria RAM
+  systemLogs = [];
+  logEvent('Caché y logs locales purgados.');
+
+  // 2. Liberar memoria acumulada con Garbage Collector si está expuesto
+  if (global.gc) {
+    try {
+      global.gc();
+      logEvent('Garbage collector ejecutado exitosamente.');
+    } catch (e) {}
+  }
+
+  // 3. Forzar re-despliegue en Render
   const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
-  if (!deployHookUrl) {
-    return res.status(400).json({ error: 'No se configuró RENDER_DEPLOY_HOOK_URL en Variables de Entorno' });
-  }
-  try {
-    const response = await fetch(deployHookUrl, { method: 'POST' });
-    if (response.ok) {
-      logEvent('Deploy de Render activado desde la interfaz web.');
-      return res.json({ success: true, message: 'Deploy iniciado correctamente' });
+  if (deployHookUrl) {
+    try {
+      const response = await fetch(deployHookUrl, { method: 'POST' });
+      if (response.ok) {
+        logEvent('Deploy Hook enviado a Render para reconstruir el servidor.');
+        return res.json({ success: true, message: 'Reinicio profundo completado y re-despliegue en curso en Render.' });
+      }
+    } catch (err) {
+      logEvent(`Error invocando Deploy Hook: ${err.message}`, true);
     }
-    res.status(500).json({ error: 'Render rechazó la solicitud de deploy' });
-  } catch (err) {
-    logEvent(`Error activando Deploy Hook: ${err.message}`, true);
-    res.status(500).json({ error: err.message });
   }
+
+  res.json({ success: true, message: 'Limpieza de RAM y estado completada en el servidor actual.' });
 });
 
 // Chat Web
@@ -211,7 +226,7 @@ async function consultarGemini(parts, maxTokens = 120) {
 
 // Búsqueda de GIFs con límite estricto de máximo 2 elementos
 async function buscarGifsReales(busqueda, cantidad = 1) {
-  const limiteMax = Math.min(Math.max(cantidad, 1), 2); // Máximo 2 GIFs
+  const limiteMax = Math.min(Math.max(cantidad, 1), 2);
   const termino = busqueda || 'funny meme';
   const urlsEncontradas = [];
 
