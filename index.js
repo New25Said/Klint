@@ -1644,7 +1644,7 @@ function limpiarTextoIA(texto) {
 }
 
 function detectarBusquedaWeb(texto) {
-  return /\b(
+  return /\b(clin|klin|klint|klinty)\b/i.test(texto);
     busca\s+en\s+(internet|la\s+web|google),
     busca\s+en\s+la\s+web,
     busca\s+online,
