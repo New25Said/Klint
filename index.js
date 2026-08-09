@@ -1,4 +1,7 @@
-const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
+const { 
+  Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder, 
+  AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle 
+} = require('discord.js');
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -16,13 +19,16 @@ function logEvent(msg, esError = false) {
   if (systemLogs.length > 50) systemLogs.pop();
 }
 
-process.on('unhandledRejection', (reason) => {
-  logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true);
-});
+// Feature Toggles (Control en tiempo real desde la Web)
+const featureToggles = {
+  audio: true,
+  memes: true,
+  gifs: true,
+  webChat: true
+};
 
-process.on('uncaughtException', (err) => {
-  logEvent(`Excepción no capturada: ${err.stack || err.message}`, true);
-});
+process.on('unhandledRejection', (reason) => logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true));
+process.on('uncaughtException', (err) => logEvent(`Excepción no capturada: ${err.stack || err.message}`, true));
 
 // Cargar system_instruction.txt
 function cargarSystemInstruction() {
@@ -59,7 +65,7 @@ function validarKey(req, res, next) {
 }
 
 app.post('/api/login', validarKey, (req, res) => res.json({ success: true }));
-app.post('/api/stats', validarKey, (req, res) => res.json({ guilds: client.guilds.cache.size, ping: client.ws.ping }));
+app.post('/api/stats', validarKey, (req, res) => res.json({ guilds: client.guilds.cache.size, ping: client.ws.ping, toggles: featureToggles }));
 app.post('/api/get-prompt', validarKey, (req, res) => res.json({ prompt: cargarSystemInstruction() }));
 app.post('/api/save-prompt', validarKey, (req, res) => {
   try {
@@ -77,23 +83,70 @@ app.post('/api/force-status', validarKey, async (req, res) => {
   res.json({ success: true });
 });
 
-// Endpoint de Reset Profundo (Limpieza de RAM + Purga de Logs + Re-deploy de Render)
+// Control de Features desde la web
+app.post('/api/toggle-feature', validarKey, (req, res) => {
+  const { feature, value } = req.body;
+  if (featureToggles.hasOwnProperty(feature)) {
+    featureToggles[feature] = value;
+    logEvent(`Feature '${feature}' cambiado a: ${value}`);
+    res.json({ success: true, toggles: featureToggles });
+  } else {
+    res.status(400).json({ error: 'Feature no encontrada' });
+  }
+});
+
+// Obtener todas las memorias guardadas en Firebase
+app.post('/api/get-memories', validarKey, async (req, res) => {
+  const dbUrl = obtenerFirebaseUrl();
+  if (!dbUrl) return res.json({ users: {} });
+  try {
+    const response = await fetch(`${dbUrl}/usuarios.json`);
+    const data = await response.json();
+    res.json({ users: data || {} });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Eliminar memoria de un usuario
+app.post('/api/delete-memory', validarKey, async (req, res) => {
+  const { userId, memoryKey } = req.body;
+  const dbUrl = obtenerFirebaseUrl();
+  if (!dbUrl) return res.status(400).json({ error: 'Sin base de datos' });
+  try {
+    await fetch(`${dbUrl}/usuarios/${userId}/memorias/${memoryKey}.json`, { method: 'DELETE' });
+    logEvent(`Memoria ${memoryKey} eliminada del usuario ${userId}.`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Enviar mensaje a un canal de Discord desde la Web
+app.post('/api/send-discord-msg', validarKey, async (req, res) => {
+  const { channelId, message } = req.body;
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel && channel.isTextBased()) {
+      await channel.send(message);
+      logEvent(`Mensaje enviado desde la web al canal ${channelId}`);
+      return res.json({ success: true });
+    }
+    res.status(400).json({ error: 'Canal inválido o no de texto' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint de Reset Profundo
 app.post('/api/deep-reset', validarKey, async (req, res) => {
   logEvent('Iniciando proceso de Limpieza Profunda...');
-  
-  // 1. Limpiar caché/logs en memoria RAM
   systemLogs = [];
-  logEvent('Caché y logs locales purgados.');
-
-  // 2. Liberar memoria acumulada con Garbage Collector si está expuesto
+  
   if (global.gc) {
-    try {
-      global.gc();
-      logEvent('Garbage collector ejecutado exitosamente.');
-    } catch (e) {}
+    try { global.gc(); } catch (e) {}
   }
 
-  // 3. Forzar re-despliegue en Render
   const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
   if (deployHookUrl) {
     try {
@@ -112,6 +165,9 @@ app.post('/api/deep-reset', validarKey, async (req, res) => {
 
 // Chat Web
 app.post('/api/web-chat', async (req, res) => {
+  if (!featureToggles.webChat) {
+    return res.json({ response: 'el chat web está pausado temporalmente por el admin xd' });
+  }
   try {
     const { message, count, imageUrl } = req.body;
     if (count > 15) {
@@ -172,7 +228,13 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Muestra la ficha técnica, memorias, meme y GIF generado por Klint para ti')
+    .setDescription('Muestra la ficha técnica, memorias, meme y GIF generado por Klint para ti'),
+  new SlashCommandBuilder()
+    .setName('ofertas')
+    .setDescription('Busca ofertas de juegos en descuento'),
+  new SlashCommandBuilder()
+    .setName('juego')
+    .setDescription('Inicia una partida de Tres en Raya con botones')
 ].map(command => command.toJSON());
 
 client.once('clientReady', async () => {
@@ -180,7 +242,7 @@ client.once('clientReady', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    logEvent('Comandos Slash /klint y /status sincronizados.');
+    logEvent('Comandos Slash /klint, /status, /ofertas y /juego sincronizados.');
   } catch (error) {
     logEvent(`Error al registrar comandos slash: ${error.message}`, true);
   }
@@ -188,6 +250,20 @@ client.once('clientReady', async () => {
   await actualizarEstadoIA();
   programarCambioEstadoRandom();
 });
+
+// API CheapShark para Ofertas de Juegos
+async function buscarOfertasJuegos() {
+  try {
+    const res = await fetch('https://www.cheapshark.com/api/1.0/deals?storeID=1&upperPrice=15&pageSize=5');
+    if (res.ok) {
+      const deals = await res.json();
+      return deals.map(d => `- **${d.title}**: $${d.salePrice} (Antes $${d.normalPrice}) -> Descuento: ${Math.round(d.savings)}%`).join('\n');
+    }
+  } catch (err) {
+    logEvent(`Error al buscar ofertas: ${err.message}`, true);
+  }
+  return 'No encontré ofertas en este momento mano xd';
+}
 
 // Modelos Gemini
 const MODELOS_FALLBACK = [
@@ -226,6 +302,7 @@ async function consultarGemini(parts, maxTokens = 120) {
 
 // Búsqueda de GIFs con límite estricto de máximo 2 elementos
 async function buscarGifsReales(busqueda, cantidad = 1) {
+  if (!featureToggles.gifs) return [];
   const limiteMax = Math.min(Math.max(cantidad, 1), 2);
   const termino = busqueda || 'funny meme';
   const urlsEncontradas = [];
@@ -252,6 +329,7 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
 
 // Generador de Memes en Imagen Real
 function generarUrlMemeImagen(textoMeme) {
+  if (!featureToggles.memes) return null;
   try {
     const plantillas = ['doge', 'drake', 'fry', 'buzz', 'fine', 'distracted', 'spenser'];
     const plantillaRandom = plantillas[Math.floor(Math.random() * plantillas.length)];
@@ -277,6 +355,7 @@ function generarUrlMemeImagen(textoMeme) {
 
 // Generador nativo de Audios
 function obtenerUrlAudioVozNativo(texto) {
+  if (!featureToggles.audio) return null;
   try {
     const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#\[\]]/g, '').slice(0, 150).trim();
     if (!textoLimpio) return null;
@@ -595,11 +674,9 @@ ${promptUsuario}`;
   }
 }
 
-// Slash Commands
+// Slash Commands e Interacciones
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  try {
+  if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'klint') {
       await interaction.deferReply();
       const pregunta = interaction.options.getString('pregunta');
@@ -657,11 +734,31 @@ ${gifsUrls.join('\n')}`;
 
       await interaction.editReply({ content: mensajeStatus, files: archivosAdjuntos });
     }
-  } catch (err) {
-    logEvent(`Error procesar Slash Command /${interaction.commandName}: ${err.message}`, true);
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply('Ocurrió un error procesando el comando.');
+
+    if (interaction.commandName === 'ofertas') {
+      await interaction.deferReply();
+      const ofertasTxt = await buscarOfertasJuegos();
+      await interaction.editReply(`🎮 **OFERTAS DESTACADAS DE JUEGOS:**\n${ofertasTxt}`);
     }
+
+    if (interaction.commandName === 'juego') {
+      const rows = [];
+      for (let i = 0; i < 3; i++) {
+        const row = new ActionRowBuilder();
+        for (let j = 0; j < 3; j++) {
+          row.addComponents(
+            new ButtonBuilder().setCustomId(`tictactoe_${i}_${j}`).setLabel('-').setStyle(ButtonStyle.Secondary)
+          );
+        }
+        rows.push(row);
+      }
+      await interaction.reply({ content: '❌ **TRES EN RAYA DE KLINT** - ¡Haz tu primer movimiento!', components: rows });
+    }
+  }
+
+  // Manejo de botones de minijuegos
+  if (interaction.isButton() && interaction.customId.startsWith('tictactoe_')) {
+    await interaction.update({ content: `Has marcado la casilla! (Turno de Klint...)` });
   }
 });
 
