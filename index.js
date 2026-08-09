@@ -89,6 +89,7 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
 });
 
+// Comandos Slash registrados
 const commands = [
   new SlashCommandBuilder()
     .setName('klint')
@@ -97,7 +98,10 @@ const commands = [
       option.setName('pregunta')
         .setDescription('Lo que quieres decirle a Klint')
         .setRequired(true)
-    )
+    ),
+  new SlashCommandBuilder()
+    .setName('status')
+    .setDescription('Muestra la ficha técnica, memorias, meme y GIF generado por Klint para ti')
 ].map(command => command.toJSON());
 
 client.once('clientReady', async () => {
@@ -105,7 +109,7 @@ client.once('clientReady', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    logEvent('Comandos /klint registrados correctamente.');
+    logEvent('Comandos /klint y /status registrados correctamente.');
   } catch (error) {
     logEvent(`Error al registrar comandos slash: ${error.message}`);
   }
@@ -149,7 +153,7 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Búsqueda de GIF usando la API pública e infalible de Giphy
+// Búsqueda de GIF real infalible en Giphy
 async function buscarGifReal(busqueda) {
   try {
     const query = encodeURIComponent(busqueda || 'funny meme');
@@ -168,13 +172,12 @@ async function buscarGifReal(busqueda) {
   return null;
 }
 
-// Generador de Memes con plantillas con imagen real verificadas
+// Generador de Memes en Imagen Real
 function generarUrlMemeImagen(textoMeme) {
   const plantillas = ['doge', 'drake', 'fry', 'buzz', 'fine', 'distracted', 'spenser'];
   const plantillaRandom = plantillas[Math.floor(Math.random() * plantillas.length)];
   
-  // Si el texto tiene un guion o barra para dividir arriba y abajo
-  let textoArriba = '_';
+  let textoArriba = 'cuando';
   let textoAbajo = textoMeme;
 
   if (textoMeme.includes('|')) {
@@ -183,8 +186,8 @@ function generarUrlMemeImagen(textoMeme) {
     textoAbajo = partes[1].trim();
   }
 
-  const cleanArriba = encodeURIComponent(textoArriba.replace(/\s+/g, '_').toLowerCase());
-  const cleanAbajo = encodeURIComponent(textoAbajo.replace(/\s+/g, '_').toLowerCase() || 'cuando_pasa_xd');
+  const cleanArriba = encodeURIComponent(textoArriba.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_') || 'cuando');
+  const cleanAbajo = encodeURIComponent(textoAbajo.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_') || 'pasa_xd');
 
   return `https://api.memegen.link/images/${plantillaRandom}/${cleanArriba}/${cleanAbajo}.png`;
 }
@@ -192,7 +195,7 @@ function generarUrlMemeImagen(textoMeme) {
 // Generador nativo de Audios sintetizados en MP3
 function obtenerUrlAudioVozNativo(texto) {
   try {
-    const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#]/g, '').slice(0, 150).trim();
+    const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#\[\]]/g, '').slice(0, 150).trim();
     if (!textoLimpio) return null;
     return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textoLimpio)}&tl=es-US&client=tw-ob`;
   } catch (err) {
@@ -449,16 +452,16 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
     const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
-    const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen|meme)\b/i.test(promptUsuario);
+    const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
     const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
 
     let instruccionExtra = '';
     if (pideAudio) {
-      instruccionExtra = "\nREGLA DE AUDIO: Responde ÚNICAMENTE la frase corta que vas a decir en voz alta.";
+      instruccionExtra = "\nREGLA DE AUDIO: Escribe ÚNICAMENTE la frase corta que vas a decir en voz alta.";
     } else if (pideMemeImagen) {
-      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea una frase graciosa dividida en dos por una barra (Texto Arriba | Texto Abajo). Agrega al final [GENERAR_MEME: texto arriba | texto abajo]. Ejemplo: [GENERAR_MEME: cuando le pides un meme | y te manda a volar].";
+      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea un meme corto en dos líneas usando el tag [GENERAR_MEME: texto arriba | texto abajo]. NUNCA escribas el tag en el texto visible del mensaje.";
     } else if (pideGifExplicitamente) {
-      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. Ejemplo: [BUSCAR_GIF: cat laughing].";
+      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje.";
     }
 
     const promptText = `${systemInstruction}
@@ -502,17 +505,14 @@ ${promptUsuario}`;
       const textoMeme = matchMeme ? matchMeme[1] : 'cuando pasa | xd';
       respuesta = respuesta.replace(/\[GENERAR_MEME:\s*([^\]]+)\]/i, '').trim();
       memeImagenUrl = generarUrlMemeImagen(textoMeme);
-    } else {
-      if (pideGifExplicitamente && !respuesta.includes('[BUSCAR_GIF:')) {
-        respuesta += ` [BUSCAR_GIF: funny meme]`;
-      }
+    }
 
-      const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
-      if (matchGif) {
-        const terminoBusqueda = matchGif[1].trim();
-        respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
-        gifUrlEncontrada = await buscarGifReal(terminoBusqueda);
-      }
+    // Extracción limpia de GIFs
+    const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
+    if (matchGif || pideGifExplicitamente) {
+      const terminoBusqueda = matchGif ? matchGif[1].trim() : 'funny meme';
+      respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
+      gifUrlEncontrada = await buscarGifReal(terminoBusqueda);
     }
 
     if (usuarioAutor) {
@@ -532,7 +532,7 @@ ${promptUsuario}`;
   }
 }
 
-// Slash Commands (/klint)
+// Slash Commands (/klint y /status)
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -550,6 +550,50 @@ client.on('interactionCreate', async interaction => {
     if (gifUrl) mensajeFinal = `${respuesta}\n${gifUrl}`.trim();
 
     await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
+  }
+
+  if (interaction.commandName === 'status') {
+    await interaction.deferReply();
+    
+    const user = interaction.user;
+    const member = interaction.member;
+    const nick = member?.displayName || user.username;
+    const username = user.username;
+
+    // Obtener recuerdos guardados del usuario desde Firebase
+    const datosFirebase = await obtenerMemoriaUsuario(user.id);
+    let resumenMemoria = 'Aún no tengo datos guardados sobre ti.';
+    if (datosFirebase && datosFirebase.memorias) {
+      const memoriasArray = Object.values(datosFirebase.memorias);
+      resumenMemoria = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
+    }
+
+    // Generar Meme personalizado con los datos del usuario
+    const memeTexto = `cuando ${nick} usa /status | y klint ya se acuerda de todo xd`;
+    const memeUrl = generarUrlMemeImagen(memeTexto);
+
+    // Obtener GIF aleatorio de celebración o saludo
+    const gifUrl = await buscarGifReal('cool robot');
+
+    const archivosAdjuntos = [new AttachmentBuilder(memeUrl, { name: 'status_meme.png' })];
+
+    const mensajeStatus = `🤖 **FICHA TÉCNICA DE KLINT - ESTADO ACTUAL**
+👤 **Usuario:** ${username} (Apodo: ${nick})
+🆔 **ID:** \`${user.id}\`
+
+🧠 **MEMORIA GUARDADA SOBRE TI:**
+${resumenMemoria}
+
+⚡ **CAPACIDADES ACTIVAS DE KLINT:**
+1. 🎙️ **Notas de voz:** Pídeme "manda un audio" y te responderé en MP3.
+2. 🖼️ **Generador de Memes e Imágenes:** Pídeme "haz un meme" y crearé una imagen personalizada.
+3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir un GIF real de Giphy.
+4. 👀 **Presencia en Tiempo Real:** Leo tu estado personalizado de profil y si escuchas Spotify o juegas.
+5. 💬 **Memoria Persistente:** Recuerdo tus gustos y conversaciones en Firebase.
+
+${gifUrl ? gifUrl : ''}`;
+
+    await interaction.editReply({ content: mensajeStatus, files: archivosAdjuntos });
   }
 });
 
