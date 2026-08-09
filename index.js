@@ -1,186 +1,215 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Klint - Un usuario más en tu Discord</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;600;700;800&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg-primary: #313338;
-      --bg-secondary: #2b2d31;
-      --bg-tertiary: #1e1f22;
-      --brand-color: #5865F2;
-      --brand-hover: #4752C4;
-      --text-normal: #dbdee1;
-      --text-muted: #949ba4;
-      --green-status: #23a55a;
+const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+
+// Carga la instrucción de sistema desde un archivo independiente
+function cargarSystemInstruction() {
+  try {
+    const filePath = path.join(__dirname, 'system_instruction.txt');
+    return fs.readFileSync(filePath, 'utf8');
+  } catch (error) {
+    console.error('No se pudo cargar system_instruction.txt, usando predeterminado:', error);
+    return 'Eres Klint, un usuario más de la comunidad de Discord. Habla relajado y casual.';
+  }
+}
+
+// Servidor Express
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor HTTP activo en puerto ${PORT}`);
+});
+
+// Auto-ping a la URL fija de Render
+const RENDER_URL = 'https://klint-gxww.onrender.com';
+setInterval(() => {
+  fetch(RENDER_URL)
+    .then(() => console.log('Self-ping exitoso para mantener Klint activo.'))
+    .catch((err) => console.error('Error en self-ping:', err));
+}, 10 * 60 * 1000);
+
+// Inicialización de la API de Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+
+// Inicialización del Cliente de Discord
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages
+  ],
+  partials: [Partials.Channel, Partials.Message]
+});
+
+// Registro de comandos Slash
+const commands = [
+  new SlashCommandBuilder()
+    .setName('klint')
+    .setDescription('Hazle una pregunta o habla con Klint')
+    .addStringOption(option =>
+      option.setName('pregunta')
+        .setDescription('Lo que quieres preguntarle a Klint')
+        .setRequired(true)
+    )
+].map(command => command.toJSON());
+
+client.once('clientReady', async () => {
+  console.log(`Klint ha iniciado sesión como ${client.user.tag}`);
+
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  try {
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: commands }
+    );
+    console.log('Comandos /klint registrados correctamente.');
+  } catch (error) {
+    console.error('Error al registrar comandos slash:', error);
+  }
+
+  actualizarEstadoAutonomo();
+  setInterval(actualizarEstadoAutonomo, 20 * 60 * 1000);
+});
+
+// Función autónoma para actualizar presencia
+async function actualizarEstadoAutonomo() {
+  try {
+    const promptEstado = 'Genera un estado corto de Discord para un usuario casual (máximo 5 palabras). Responde SOLO con el texto del estado, sin comillas ni explicaciones.';
+    const result = await model.generateContent(promptEstado);
+    const response = await result.response;
+    const textoEstado = response.text()?.trim() || 'viendo el chat';
+
+    const estados = ['online', 'idle', 'dnd'];
+    const estadoAleatorio = estados[Math.floor(Math.random() * estados.length)];
+
+    client.user.setPresence({
+      status: estadoAleatorio,
+      activities: [{ name: textoEstado, type: ActivityType.Custom }]
+    });
+    console.log(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
+  } catch (error) {
+    console.error('Error al actualizar estado autónomo:', error);
+  }
+}
+
+// Función auxiliar para convertir una URL de imagen a un objeto Part de Gemini
+async function urlToGenerativePart(url) {
+  try {
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const mimeType = response.headers.get('content-type') || 'image/png';
+    return {
+      inlineData: {
+        data: buffer.toString('base64'),
+        mimeType
+      }
+    };
+  } catch (error) {
+    console.error('Error procesando imagen adjunta:', error);
+    return null;
+  }
+}
+
+// Procesar interacción con la IA (Texto + Contexto + Soporte para imágenes)
+async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
+  try {
+    const systemInstruction = cargarSystemInstruction();
+    const mensajesPrevios = await canal.messages.fetch({ limit: 10 });
+    
+    const historialFormateado = mensajesPrevios.reverse().map(m => {
+      const usuario = m.author.username;
+      const contenido = m.content;
+      let actividad = '';
+      if (m.member?.presence?.activities?.length) {
+        const act = m.member.presence.activities[0];
+        actividad = ` [Actividad: ${act.name}]`;
+      }
+      return `${usuario}${actividad}: ${contenido}`;
+    }).join('\n');
+
+    const promptText = `${systemInstruction}
+
+HISTORIAL RECIENTE DEL CHAT:
+${historialFormateado}
+
+PREGUNTA/MENSAJE ACTUAL A RESPONDER:
+${promptUsuario}`;
+
+    const contents = [promptText];
+
+    // Si existen imágenes/archivos adjuntos en el mensaje actual, se convierten para la IA
+    if (adjuntos.length > 0) {
+      for (const attachment of adjuntos) {
+        if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+          const imagePart = await urlToGenerativePart(attachment.url);
+          if (imagePart) contents.push(imagePart);
+        }
+      }
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    const result = await model.generateContent(contents);
+    const response = await result.response;
 
-    body {
-      background-color: var(--bg-tertiary);
-      color: var(--text-normal);
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem 1rem;
-    }
+    return response.text() || 'banco de memoria vacío, no sé qué decir jsjs';
+  } catch (error) {
+    console.error('Error en Gemini API:', error);
+    return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
+  }
+}
 
-    .container {
-      max-width: 900px;
-      width: 100%;
-    }
+// Manejo de Comandos Slash (/klint)
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
 
-    .hero {
-      background: var(--bg-primary);
-      border-radius: 16px;
-      padding: 3rem 2rem;
-      text-align: center;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-      margin-bottom: 2rem;
+  if (interaction.commandName === 'klint') {
+    await interaction.deferReply();
+    const pregunta = interaction.options.getString('pregunta');
+    const respuesta = await procesarRespuestaIA(interaction.channel, pregunta);
+    
+    if (respuesta.length > 2000) {
+      await interaction.editReply(respuesta.slice(0, 1995) + '...');
+    } else {
+      await interaction.editReply(respuesta);
     }
+  }
+});
 
-    .avatar-wrapper {
-      position: relative;
-      width: 96px;
-      height: 96px;
-      margin: 0 auto 1.5rem auto;
+// Manejo de Mensajes Directos, Menciones y Nombres
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+
+  const esDM = !message.guild;
+  const textoLower = message.content.toLowerCase();
+  
+  const patronNombres = /\b(clin|klin|klint|klinty)\b/i;
+  const fueMencionadoDirectamente = message.mentions.has(client.user.id);
+  const contieneNombre = patronNombres.test(textoLower);
+  const tieneAdjuntos = message.attachments.size > 0;
+
+  if (esDM || fueMencionadoDirectamente || contieneNombre || (tieneAdjuntos && contieneNombre)) {
+    await message.channel.sendTyping();
+    
+    const adjuntosArray = Array.from(message.attachments.values());
+    const respuesta = await procesarRespuestaIA(message.channel, message.content, adjuntosArray);
+    
+    if (respuesta.length > 2000) {
+      await message.reply(respuesta.slice(0, 1995) + '...');
+    } else {
+      await message.reply(respuesta);
     }
+  }
+});
 
-    .avatar {
-      width: 100%;
-      height: 100%;
-      background: var(--brand-color);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 2.5rem;
-      font-weight: 800;
-      color: white;
-    }
-
-    .status-badge {
-      position: absolute;
-      bottom: 2px;
-      right: 2px;
-      width: 22px;
-      height: 22px;
-      background-color: var(--green-status);
-      border: 4px solid var(--bg-primary);
-      border-radius: 50%;
-    }
-
-    h1 {
-      font-size: 2.8rem;
-      font-weight: 800;
-      color: #ffffff;
-      margin-bottom: 0.75rem;
-      letter-spacing: -0.5px;
-    }
-
-    .subtitle {
-      font-size: 1.15rem;
-      color: var(--text-muted);
-      max-width: 600px;
-      margin: 0 auto 2rem auto;
-      line-height: 1.5;
-    }
-
-    .btn-group {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.5rem;
-      background-color: var(--brand-color);
-      color: white;
-      padding: 0.9rem 2rem;
-      border-radius: 28px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 1.05rem;
-      transition: all 0.2s ease;
-    }
-
-    .btn:hover {
-      background-color: var(--brand-hover);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(88, 101, 242, 0.4);
-    }
-
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1.5rem;
-    }
-
-    .feature-card {
-      background: var(--bg-secondary);
-      padding: 1.75rem;
-      border-radius: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.03);
-    }
-
-    .feature-card h3 {
-      color: #ffffff;
-      font-size: 1.2rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .feature-card p {
-      color: var(--text-muted);
-      font-size: 0.95rem;
-      line-height: 1.4;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="hero">
-      <div class="avatar-wrapper">
-        <div class="avatar">K</div>
-        <div class="status-badge" title="En línea"></div>
-      </div>
-      <h1>Klint Bot</h1>
-      <p class="subtitle">La IA multitarea diseñada para chatear en Discord como un miembro más del servidor. Reconoce imágenes, analiza contexto y mantiene presencia activa.</p>
-      <div class="btn-group">
-        <a class="btn" href="https://discord.com/oauth2/authorize?client_id=1535688886326530198&permissions=8&integration_type=0&scope=bot+applications.commands" target="_blank">Añadir a Discord</a>
-      </div>
-    </div>
-
-    <div class="features-grid">
-      <div class="feature-card">
-        <h3>⚡ Multitarea</h3>
-        <p>Procesa múltiples mensajes continuos sin bloquearse ni perder el hilo del chat.</p>
-      </div>
-      <div class="feature-card">
-        <h3>🖼️ Visión Multimodal</h3>
-        <p>Reconoce imágenes, memes y archivos adjuntos enviado por los usuarios en tiempo real.</p>
-      </div>
-      <div class="feature-card">
-        <h3>🟢 Presencia Autónoma</h3>
-        <p>Cambia su estado de actividad (En línea, Ausente, No molestar) e historial de estado dinámicamente.</p>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
+client.login(process.env.DISCORD_TOKEN);
