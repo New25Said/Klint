@@ -6,172 +6,224 @@
   <title>Klint AI - Portafolio & Dashboard</title>
   <style>
     :root {
-      --bg: #090a0f;
-      --card: #12131c;
-      --border: #222436;
-      --accent: #8b5cf6;
-      --accent-hover: #7c3aed;
-      --text: #f3f4f6;
-      --muted: #9ca3af;
-      --danger: #ef4444;
-      --warning: #f59e0b;
+      --bg: #1e1f22;
+      --card: #2b2d31;
+      --card-inner: #313338;
+      --border: #3f4147;
+      --accent: #5865f2;
+      --accent-purple: #8b5cf6;
+      --accent-hover: #4752c4;
+      --text: #f2f3f5;
+      --muted: #949ba4;
+      --danger: #da373c;
+      --warning: #f0b232;
+      --online: #23a55a;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-    .container { width: 100%; max-width: 950px; display: flex; flex-direction: column; gap: 24px; }
+    .container { width: 100%; max-width: 950px; display: flex; flex-direction: column; gap: 20px; }
 
-    header { text-align: center; padding: 30px 20px; background: linear-gradient(180deg, rgba(139,92,246,0.1) 0%, rgba(9,10,15,1) 100%); border-radius: 16px; border: 1px solid var(--border); }
-    header h1 { font-size: 2.8rem; font-weight: 800; color: var(--accent); margin-bottom: 6px; }
-    header p { color: var(--muted); font-size: 1.1rem; }
+    /* Header Estilo Banner de Perfil de Discord */
+    header {
+      background: linear-gradient(135deg, rgba(139,92,246,0.3) 0%, rgba(88,101,242,0.2) 50%, rgba(43,45,49,1) 100%);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      padding: 30px 24px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      position: relative;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
 
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
-    .card h2 { font-size: 1.3rem; margin-bottom: 14px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; }
+    .avatar-wrapper { position: relative; width: 90px; height: 90px; flex-shrink: 0; }
+    .avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 4px solid var(--card); }
+    .status-badge { width: 22px; height: 22px; background: var(--online); border-radius: 50%; border: 4px solid var(--card); position: absolute; bottom: 0; right: 0; }
 
-    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 15px; }
-    .feature-item { background: #0b0c12; border: 1px solid var(--border); padding: 16px; border-radius: 10px; }
-    .feature-item h3 { font-size: 1rem; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
-    .feature-item p { font-size: 0.88rem; color: var(--muted); line-height: 1.4; }
+    .profile-info { display: flex; flex-direction: column; gap: 6px; }
+    .profile-info h1 { font-size: 2rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
+    .bot-tag { background: #5865f2; color: #fff; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; text-transform: uppercase; }
+    .profile-info p { color: var(--muted); font-size: 0.95rem; }
 
-    .bio-box { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-    .bio-item { background: #0b0c12; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.9rem; }
-    .bio-item strong { color: var(--accent); display: block; margin-bottom: 4px; }
+    .bot-actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-discord {
+      background: var(--accent); color: white; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.88rem; display: inline-flex; align-items: center; gap: 8px; transition: background 0.2s;
+    }
+    .btn-discord:hover { background: var(--accent-hover); }
+    .btn-discord.secondary { background: #4e5058; }
+    .btn-discord.secondary:hover { background: #6d6f78; }
+
+    /* Tarjetas tipo Discord Containers */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+    .card h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 12px; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .feature-item { background: var(--card-inner); border: 1px solid var(--border); padding: 14px; border-radius: 8px; }
+    .feature-item h3 { font-size: 0.95rem; color: #fff; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+    .feature-item p { font-size: 0.85rem; color: var(--muted); line-height: 1.35; }
+
+    .bio-box { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+    .bio-item { background: var(--card-inner); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.88rem; }
+    .bio-item strong { color: var(--accent-purple); display: block; margin-bottom: 2px; }
 
     input[type="password"], input[type="text"], textarea {
-      width: 100%; background: #08080c; border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 0.95rem; outline: none; transition: border 0.2s;
+      width: 100%; background: #1e1f22; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 0.9rem; outline: none; transition: border 0.2s;
     }
     input:focus, textarea:focus { border-color: var(--accent); }
 
     button {
-      background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background 0.2s; white-space: nowrap;
+      background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: background 0.2s; white-space: nowrap;
     }
     button:hover { background: var(--accent-hover); }
     button.danger { background: var(--danger); }
     button.warning { background: var(--warning); color: #000; }
 
-    .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
-    .stat-box { background: #08080c; padding: 16px; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
-    .stat-box span { font-size: 1.6rem; font-weight: bold; color: var(--accent); display: block; }
+    .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .stat-box { background: var(--card-inner); padding: 14px; border-radius: 6px; border: 1px solid var(--border); text-align: center; }
+    .stat-box span { font-size: 1.4rem; font-weight: bold; color: var(--accent-purple); display: block; }
 
-    textarea { height: 120px; resize: vertical; }
+    textarea { height: 110px; resize: vertical; }
 
-    .logs-box { background: #060608; border: 1px solid var(--border); border-radius: 8px; padding: 12px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #a7f3d0; }
-    .logs-box div.error { color: #fca5a5; }
+    .logs-box { background: #111214; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 180px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.82rem; color: #3ba55c; }
+    .logs-box div.error { color: #f23f43; }
 
-    .chat-box { background: #060608; border: 1px solid var(--border); border-radius: 8px; height: 340px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
-    .chat-msg { max-width: 85%; padding: 10px 14px; border-radius: 10px; font-size: 0.95rem; line-height: 1.4; }
-    .chat-msg.user { background: var(--accent); color: white; align-self: flex-end; }
-    .chat-msg.bot { background: #1c1d2b; color: var(--text); align-self: flex-start; }
+    /* Chat Web Estilo Chat de Discord */
+    .chat-box { background: #111214; border: 1px solid var(--border); border-radius: 8px; height: 340px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+    .chat-msg { max-width: 85%; padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; word-break: break-word; }
+    .chat-msg.user { background: var(--accent); color: #fff; align-self: flex-end; }
+    .chat-msg.bot { background: var(--card-inner); color: var(--text); align-self: flex-start; border: 1px solid var(--border); }
     
-    .chat-media { margin-top: 8px; max-width: 100%; max-height: 220px; border-radius: 8px; border: 1px solid var(--border); object-fit: contain; }
-    audio { margin-top: 8px; width: 100%; height: 36px; }
+    .chat-media { margin-top: 6px; max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid var(--border); object-fit: contain; }
+    audio { margin-top: 6px; width: 100%; height: 32px; }
 
     .chat-controls { display: flex; flex-direction: column; gap: 8px; }
-    .chat-input-row { display: flex; gap: 10px; }
-    .status-msg { font-size: 0.85rem; margin-top: 8px; color: var(--muted); }
+    .chat-input-row { display: flex; gap: 8px; }
+    .status-msg { font-size: 0.85rem; margin-top: 6px; color: var(--muted); }
   </style>
 </head>
 <body>
 
   <div class="container">
     
+    <!-- Perfil del Bot Estilo Discord -->
     <header>
-      <h1>Portafolio de Klint AI</h1>
-      <p>Bot Autónomo Inteligente para Discord & Web</p>
+      <div class="avatar-wrapper">
+        <img src="https://cdn.discordapp.com/avatars/1535688886326530198/avatar.png" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'" class="avatar-img" alt="Klint Avatar">
+        <div class="status-badge" title="Online"></div>
+      </div>
+      <div class="profile-info">
+        <h1>Klint <span class="bot-tag">APP</span></h1>
+        <p>Bot autónomo con memoria, voz nativa, GIFs y memes en tiempo real.</p>
+        
+        <div class="bot-actions">
+          <a href="https://discord.com/oauth2/authorize?client_id=1535688886326530198&permissions=8&integration_type=0&scope=bot+applications.commands" target="_blank" class="btn-discord">
+            ➕ Agregar a Servidor
+          </a>
+          <a href="https://discord.com/oauth2/authorize?client_id=1535688886326530198" target="_blank" class="btn-discord secondary">
+            📱 Agregar a mis Apps
+          </a>
+        </div>
+      </div>
     </header>
 
+    <!-- Ficha de Información (Biografía) -->
     <div class="card">
-      <h2>Biografía & Identidad</h2>
+      <h2>Perfil & Identidad</h2>
       <div class="bio-box">
         <div class="bio-item">
           <strong>Creador Principal</strong>
-          Said Sandoval (Sa1xp / S41d_03).
+          Said Sandoval (Sa1xp / S41d_03)
         </div>
         <div class="bio-item">
           <strong>Origen & Creencia</strong>
-          De Piura, Perú. Creyente en Dios.
+          Piura, Perú. Creyente en Dios.
         </div>
         <div class="bio-item">
-          <strong>Idiomas Soportados</strong>
+          <strong>Idiomas</strong>
           Español casual, quechua y yucateco.
         </div>
         <div class="bio-item">
-          <strong>Genealogía de Código</strong>
-          Ultron es su primo directo.
+          <strong>ID Oficial de App</strong>
+          <code>1535688886326530198</code>
         </div>
       </div>
     </div>
 
+    <!-- Portafolio de Capacidades -->
     <div class="card">
-      <h2>Portafolio de Capacidades</h2>
+      <h2>Funciones & Capacidades</h2>
       <div class="features-grid">
         <div class="feature-item">
-          <h3>🎙️ Respuestas en Notas de Voz</h3>
-          <p>Generación nativa de voz sintetizada en archivos MP3 enviados directamente al canal.</p>
+          <h3>🎙️ Notas de Voz MP3</h3>
+          <p>Sintetiza voz nativa y envía archivos de audio directa al canal.</p>
         </div>
         <div class="feature-item">
-          <h3>🖼️ Generador de Memes e Imágenes</h3>
-          <p>Motor de generación de memes basado en plantillas dinámicas con texto personalizado.</p>
+          <h3>🖼️ Generador de Memes</h3>
+          <p>Creación de memes dinámicos en imagen mediante plantillas personalizadas.</p>
         </div>
         <div class="feature-item">
-          <h3>🎞️ Motor GIF Integrado</h3>
-          <p>Búsqueda e inserción directa de hasta 2 GIFs reales por interacción mediante Tenor.</p>
+          <h3>🎞️ GIFs Animados</h3>
+          <p>Búsqueda e inserción directa de hasta 2 GIFs por petición mediante Tenor.</p>
         </div>
         <div class="feature-item">
-          <h3>👀 Lectura de Presencia en Tiempo Real</h3>
-          <p>Sincronización con estados personalizados de usuario, partidas de juego y Spotify.</p>
+          <h3>👀 Detección de Presencia</h3>
+          <p>Sincronización con estados personalizados, partidas de juegos y Spotify.</p>
         </div>
         <div class="feature-item">
           <h3>🧠 Memoria Persistente</h3>
-          <p>Guarda recuerdos, gustos y secretos de los usuarios mediante base de datos Firebase.</p>
+          <p>Guarda secretos, gustos y hábitos de usuarios en Firebase.</p>
         </div>
         <div class="feature-item">
-          <h3>⚡ Estados de Perfil Dinámicos</h3>
-          <p>Cambios de presencia aleatorios con frases casuales autogeneradas.</p>
+          <h3>⚡ Presencia Dinámica</h3>
+          <p>Cambia su estado de Discord de forma autónoma con frases casuales.</p>
         </div>
       </div>
     </div>
 
+    <!-- Acceso Admin -->
     <div class="card">
       <h2>Acceso Administrador</h2>
-      <div class="chat-input-row" style="margin-bottom: 10px;">
-        <input type="password" id="authKey" placeholder="Ingresa la clave de acceso (saidkey)...">
+      <div class="chat-input-row">
+        <input type="password" id="authKey" placeholder="Clave de acceso admin (saidkey)...">
         <button onclick="loginAdmin()">Ingresar</button>
       </div>
       <p id="loginStatus" class="status-msg"></p>
     </div>
 
+    <!-- Area Protegida Admin -->
     <div id="adminPanel" style="display: none;" class="card">
       <h2>Panel de Control en Vivo</h2>
-      <div class="grid-stats" style="margin-bottom: 15px;">
+      <div class="grid-stats" style="margin-bottom: 12px;">
         <div class="stat-box">Servidores Conectados: <span id="statGuilds">-</span></div>
         <div class="stat-box">Latencia Websocket: <span id="statPing">-</span></div>
       </div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button onclick="forzarEstado()">Actualizar Estado Ahora</button>
-        <button class="warning" onclick="deepResetServer()">🧹 Reinicio Profundo y Limpieza</button>
-        <button class="danger" onclick="triggerDeploy()">Forzar Re-deploy (Render)</button>
+        <button onclick="forzarEstado()">Actualizar Estado</button>
+        <button class="warning" onclick="deepResetServer()">🧹 Reinicio Profundo</button>
+        <button class="danger" onclick="triggerDeploy()">Re-deploy (Render)</button>
       </div>
 
-      <h2 style="margin-top: 20px;">Instrucciones del Sistema (Prompt)</h2>
+      <h2 style="margin-top: 16px;">Instrucciones del Sistema (Prompt)</h2>
       <textarea id="promptText" placeholder="Cargando instrucciones..."></textarea>
-      <button onclick="guardarPrompt()" style="margin-top: 10px;">Guardar Cambios</button>
+      <button onclick="guardarPrompt()" style="margin-top: 8px;">Guardar Cambios</button>
 
-      <h2 style="margin-top: 20px;">Logs del Sistema</h2>
+      <h2 style="margin-top: 16px;">Logs del Sistema</h2>
       <div id="logsContainer" class="logs-box">Cargando consola...</div>
     </div>
 
+    <!-- Chat Web de Prueba -->
     <div class="card">
       <h2>
         Chat Web de Prueba
-        <span id="chatCounter" style="font-size: 0.85rem; color: var(--muted);">Mensajes restantes: 15</span>
+        <span id="chatCounter" style="font-size: 0.8rem; color: var(--muted);">Mensajes restantes: 15</span>
       </h2>
       <div id="chatMessages" class="chat-box">
         <div class="chat-msg bot">¡habla mano! soy klint. prueba cualquier función aquí: pídeme un meme, hasta 2 gifs, o pídeme "manda un audio".</div>
       </div>
       
       <div class="chat-controls">
-        <input type="text" id="webImgInput" placeholder="URL de imagen opcional para que la IA la analice..." style="font-size: 0.85rem;">
+        <input type="text" id="webImgInput" placeholder="URL opcional de imagen para que la IA la analice..." style="font-size: 0.85rem;">
         <div class="chat-input-row">
           <input type="text" id="webMsgInput" placeholder="Escribe un mensaje, 'manda un gif' o 'manda un audio'..." onkeypress="handleEnter(event)">
           <button onclick="enviarMensajeWeb()">Enviar</button>
