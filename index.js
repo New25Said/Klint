@@ -1,5 +1,4 @@
 const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder } = require('discord.js');
-const { GoogleGenAI } = require('@google/genai');
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -34,9 +33,6 @@ setInterval(() => {
     .then(() => console.log('Self-ping exitoso para mantener Klint activo.'))
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
-
-// Inicialización del nuevo SDK oficial Google Gen AI
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Inicialización del Cliente de Discord
 const client = new Client({
@@ -77,12 +73,12 @@ client.once('clientReady', async () => {
     console.error('Error al registrar comandos slash:', error);
   }
 
-  // Iniciar rotación autónoma de presencia de Klint
+  // Iniciar rotación autónoma de presencia
   actualizarEstadoAutonomo();
   programarSiguienteCambioEstado();
 });
 
-// Banco local de estados casuales para no agotar la cuota de la API
+// Banco local de estados casuales para ahorrar cuota
 const ACTIVIDADES_CASUALES = [
   'viendo videos en youtube',
   'escuchando lofi',
@@ -98,7 +94,7 @@ const ACTIVIDADES_CASUALES = [
   'modo chill'
 ];
 
-// Función autónoma para cambiar visibilidad y actividad cuando Klint quiera
+// Función autónoma para cambiar visibilidad y actividad sin agotar cuotas
 function actualizarEstadoAutonomo() {
   try {
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
@@ -124,7 +120,7 @@ function programarSiguienteCambioEstado() {
   }, minutosAleatorios * 60 * 1000);
 }
 
-// Convierte URL de adjuntos a formato multimodal del nuevo SDK
+// Convierte URL de adjuntos a Base64 para Gemini API
 async function urlToGenerativePart(url) {
   try {
     const response = await fetch(url);
@@ -132,9 +128,9 @@ async function urlToGenerativePart(url) {
     const buffer = Buffer.from(arrayBuffer);
     const mimeType = response.headers.get('content-type') || 'image/png';
     return {
-      inlineData: {
+      inline_data: {
         data: buffer.toString('base64'),
-        mimeType
+        mime_type: mimeType
       }
     };
   } catch (error) {
@@ -143,7 +139,7 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Procesar interacción con la IA usando el nuevo SDK @google/genai y gemini-2.5-flash
+// Petición directa a REST API de Gemini mediante fetch
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -168,29 +164,41 @@ ${historialFormateado}
 PREGUNTA/MENSAJE ACTUAL A RESPONDER:
 ${promptUsuario}`;
 
-    const contents = [promptText];
+    const parts = [{ text: promptText }];
 
     if (adjuntos.length > 0) {
       for (const attachment of adjuntos) {
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
           const imagePart = await urlToGenerativePart(attachment.url);
-          if (imagePart) contents.push(imagePart);
+          if (imagePart) parts.push(imagePart);
         }
       }
     }
 
-    // Llamada al SDK actualizado
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: contents,
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: parts }]
+      })
     });
 
-    return response.text || 'banco de memoria vacío, no sé qué decir jsjs';
-  } catch (error) {
-    console.error('Error en Gemini API:', error);
-    if (error.status === 429 || error.message?.includes('429')) {
-      return 'ando con un poco de lag por tantas peticiones jsjs, dame unos segundos y me repito.';
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        return 'ando con un poco de lag por tantas peticiones jsjs, dame unos segundos y me repito.';
+      }
+      console.error('Error en Gemini API Response:', data);
+      return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
     }
+
+    const textoGenerado = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return textoGenerado || 'banco de memoria vacío, no sé qué decir jsjs';
+  } catch (error) {
+    console.error('Error procesando respuesta IA:', error);
     return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
   }
 }
