@@ -68,7 +68,7 @@
     .bio-item strong { color: var(--accent-purple); display: block; margin-bottom: 2px; }
 
     input[type="password"], input[type="text"], textarea {
-      width: 100%; background: #1e1f22; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 0.9rem; outline: none; transition: border 0.2s;
+      width: 100%; background: #1e1f22; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 0.9rem; outline: none; transition: border 0.2s; margin-bottom: 8px;
     }
     input:focus, textarea:focus { border-color: var(--accent); }
 
@@ -79,6 +79,10 @@
     button.danger { background: var(--danger); }
     button.warning { background: var(--warning); color: #000; }
 
+    .toggle-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+    .toggle-btn { background: var(--card-inner); border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px; color: var(--text); cursor: pointer; }
+    .toggle-btn.active { border-color: var(--accent); background: var(--accent); }
+
     .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
     .stat-box { background: var(--card-inner); padding: 14px; border-radius: 6px; border: 1px solid var(--border); text-align: center; }
     .stat-box span { font-size: 1.4rem; font-weight: bold; color: var(--accent-purple); display: block; }
@@ -87,6 +91,9 @@
 
     .logs-box { background: #111214; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 180px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.82rem; color: #3ba55c; }
     .logs-box div.error { color: #f23f43; }
+
+    .memory-list { background: #111214; border: 1px solid var(--border); border-radius: 6px; padding: 12px; max-height: 200px; overflow-y: auto; font-size: 0.85rem; margin-bottom: 15px; }
+    .memory-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #222; }
 
     /* Chat Web Estilo Chat de Discord */
     .chat-box { background: #111214; border: 1px solid var(--border); border-radius: 8px; height: 340px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
@@ -114,7 +121,7 @@
       </div>
       <div class="profile-info">
         <h1>Klint <span class="bot-tag">APP</span></h1>
-        <p>Bot autónomo con memoria, voz nativa, GIFs y memes en tiempo real.</p>
+        <p>Bot autónomo con memoria, voz nativa, GIFs, ofertas de juegos y minijuegos en tiempo real.</p>
         
         <div class="bot-actions">
           <a href="https://discord.com/oauth2/authorize?client_id=1535688886326530198&permissions=8&integration_type=0&scope=bot+applications.commands" target="_blank" class="btn-discord">
@@ -167,8 +174,8 @@
           <p>Búsqueda e inserción directa de hasta 2 GIFs por petición mediante Tenor.</p>
         </div>
         <div class="feature-item">
-          <h3>👀 Detección de Presencia</h3>
-          <p>Sincronización con estados personalizados, partidas de juegos y Spotify.</p>
+          <h3>🎮 Ofertas & Minijuegos</h3>
+          <p>Comandos <code>/ofertas</code> de Steam/GOG y Tres en Raya interactivo con botones.</p>
         </div>
         <div class="feature-item">
           <h3>🧠 Memoria Persistente</h3>
@@ -194,21 +201,40 @@
     <!-- Area Protegida Admin -->
     <div id="adminPanel" style="display: none;" class="card">
       <h2>Panel de Control en Vivo</h2>
-      <div class="grid-stats" style="margin-bottom: 12px;">
+      <div class="grid-stats" style="margin-bottom: 15px;">
         <div class="stat-box">Servidores Conectados: <span id="statGuilds">-</span></div>
         <div class="stat-box">Latencia Websocket: <span id="statPing">-</span></div>
       </div>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+
+      <h2>Interruptores de Funciones (Feature Toggles)</h2>
+      <div class="toggle-row">
+        <button id="toggleAudio" class="toggle-btn active" onclick="toggleFeature('audio')">🎙️ Audio MP3</button>
+        <button id="toggleMemes" class="toggle-btn active" onclick="toggleFeature('memes')">🖼️ Memes</button>
+        <button id="toggleGifs" class="toggle-btn active" onclick="toggleFeature('gifs')">🎞️ GIFs</button>
+        <button id="toggleWebChat" class="toggle-btn active" onclick="toggleFeature('webChat')">💬 Chat Web</button>
+      </div>
+
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
         <button onclick="forzarEstado()">Actualizar Estado</button>
         <button class="warning" onclick="deepResetServer()">🧹 Reinicio Profundo</button>
         <button class="danger" onclick="triggerDeploy()">Re-deploy (Render)</button>
       </div>
 
-      <h2 style="margin-top: 16px;">Instrucciones del Sistema (Prompt)</h2>
-      <textarea id="promptText" placeholder="Cargando instrucciones..."></textarea>
-      <button onclick="guardarPrompt()" style="margin-top: 8px;">Guardar Cambios</button>
+      <h2>Gestor de Memorias Firebase</h2>
+      <div id="memoryList" class="memory-list">Cargando memorias...</div>
 
-      <h2 style="margin-top: 16px;">Logs del Sistema</h2>
+      <h2>Enviar Mensaje a Discord desde Web</h2>
+      <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+        <input type="text" id="discordChannelId" placeholder="ID del Canal de Discord..." style="margin-bottom:0;">
+        <input type="text" id="discordMsgText" placeholder="Mensaje a enviar..." style="margin-bottom:0;">
+        <button onclick="enviarMensajeDiscord()">Enviar</button>
+      </div>
+
+      <h2>Instrucciones del Sistema (Prompt)</h2>
+      <textarea id="promptText" placeholder="Cargando instrucciones..."></textarea>
+      <button onclick="guardarPrompt()" style="margin-top: 4px;">Guardar Cambios</button>
+
+      <h2 style="margin-top: 15px;">Logs del Sistema</h2>
       <div id="logsContainer" class="logs-box">Cargando consola...</div>
     </div>
 
@@ -225,7 +251,7 @@
       <div class="chat-controls">
         <input type="text" id="webImgInput" placeholder="URL opcional de imagen para que la IA la analice..." style="font-size: 0.85rem;">
         <div class="chat-input-row">
-          <input type="text" id="webMsgInput" placeholder="Escribe un mensaje, 'manda un gif' o 'manda un audio'..." onkeypress="handleEnter(event)">
+          <input type="text" id="webMsgInput" placeholder="Escribe un mensaje, 'manda un gif' o 'manda un audio'..." onkeypress="handleEnter(event)" style="margin-bottom:0;">
           <button onclick="enviarMensajeWeb()">Enviar</button>
         </div>
       </div>
@@ -251,6 +277,7 @@
         cargarStats();
         cargarPrompt();
         cargarLogs();
+        cargarMemorias();
         setInterval(cargarLogs, 4000);
       } else {
         document.getElementById('loginStatus').innerText = '❌ Clave incorrecta.';
@@ -268,6 +295,70 @@
         document.getElementById('statGuilds').innerText = data.guilds;
         document.getElementById('statPing').innerText = data.ping + ' ms';
       }
+    }
+
+    async function toggleFeature(feature) {
+      const btn = document.getElementById(`toggle${feature.charAt(0).toUpperCase() + feature.slice(1)}`);
+      const currentActive = btn.classList.contains('active');
+      const res = await fetch('/api/toggle-feature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, feature, value: !currentActive })
+      });
+      if (res.ok) {
+        btn.classList.toggle('active');
+      }
+    }
+
+    async function cargarMemorias() {
+      const res = await fetch('/api/get-memories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const container = document.getElementById('memoryList');
+        container.innerHTML = '';
+        if (!data.users || Object.keys(data.users).length === 0) {
+          container.innerHTML = 'Sin memorias registradas.';
+          return;
+        }
+        for (const [id, user] of Object.entries(data.users)) {
+          if (user.memorias) {
+            for (const [memKey, mem] of Object.entries(user.memorias)) {
+              container.innerHTML += `
+                <div class="memory-item">
+                  <span><strong>${user.perfil?.username || id}:</strong> ${mem.resumen}</span>
+                  <button class="danger" onclick="borrarMemoria('${id}', '${memKey}')">Borrar</button>
+                </div>`;
+            }
+          }
+        }
+      }
+    }
+
+    async function borrarMemoria(userId, memoryKey) {
+      if (!confirm('¿Deseas eliminar este recuerdo de Firebase?')) return;
+      await fetch('/api/delete-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, userId, memoryKey })
+      });
+      cargarMemorias();
+    }
+
+    async function enviarMensajeDiscord() {
+      const channelId = document.getElementById('discordChannelId').value.trim();
+      const message = document.getElementById('discordMsgText').value.trim();
+      if (!channelId || !message) return alert('Ingresa ID de canal y mensaje.');
+      const res = await fetch('/api/send-discord-msg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, channelId, message })
+      });
+      if (res.ok) alert('✅ Mensaje enviado con éxito.');
+      else alert('❌ No se pudo enviar el mensaje.');
     }
 
     async function cargarPrompt() {
