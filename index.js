@@ -118,8 +118,7 @@ client.once('clientReady', async () => {
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 ];
 
 async function consultarGemini(parts, maxTokens = 120) {
@@ -263,16 +262,29 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// Generación de estado autónomo
+// Generación de estado autónomo verdaderamente dinámico y variado
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    let promptEstado = 'Inventa un estado de Discord totalmente libre, divertido o aleatorio que pondría un usuario en su perfil (máximo 5 palabras). Responde ÚNICAMENTE con el texto, en minúsculas y sin comillas.';
+    let promptEstado = '';
+    
     if (peticionManual) {
-      promptEstado = `Genera un estado libre para Discord basado en esto: ${peticionManual}. Máximo 5 palabras, solo texto.`;
+      promptEstado = `Genera un estado corto de Discord para un usuario casual basado en esta instrucción: "${peticionManual}". Máximo 5 palabras, todo en minúsculas, solo el texto sin comillas.`;
+    } else {
+      // Temáticas aleatorias para forzar variabilidad extrema en cada generación
+      const tematicas = [
+        "una actividad cotidiana de alguien en su computadora o celular",
+        "un pensamiento existencial o filosófico gracioso e informal",
+        "una excusa graciosa para no responder o no trabajar",
+        "algo relacionado con comida, antojos o hambre",
+        "un estado sarcástico o irónico de internet",
+        "una referencia casual a estar escuchando música o jugando algo rancio"
+      ];
+      const tematicaRandom = tematicas[Math.floor(Math.random() * tematicas.length)];
+      promptEstado = `Inventa un estado de perfil de Discord único e informal (máximo 5 palabras) sobre ${tematicaRandom}. Todo en minúsculas, casual, sin puntos finales ni comillas.`;
     }
 
-    const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
-    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
+    const textoGenerado = await consultarGemini([{ text: promptEstado }], 30);
+    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase();
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
@@ -281,7 +293,7 @@ async function actualizarEstadoIA(peticionManual = null) {
       status: estadoAleatorio,
       activities: [{ name: textoEstado, type: ActivityType.Custom }]
     });
-    logEvent(`Estado liberado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
+    logEvent(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
   } catch (error) {
     logEvent(`Error al generar estado autónomo: ${error.message}`);
   }
@@ -373,7 +385,6 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
-    // Detección directa si el usuario pidió un GIF explícitamente
     const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
     const instruccionGifForzada = pideGifExplicitamente 
       ? "\nREGLA OBLIGATORIA AHORA: El usuario te pidió un GIF/meme. DEBES incluir al final de tu respuesta la etiqueta [BUSCAR_GIF: tema_del_gif]. No te niegues a mandarlo."
@@ -407,14 +418,12 @@ ${promptUsuario}`;
 
     let respuesta = await consultarGemini(parts, 120);
 
-    // Si el usuario pidió GIF y la IA se olvidó de poner la etiqueta, la agregamos automáticamente
     if (pideGifExplicitamente && !respuesta.includes('[BUSCAR_GIF:')) {
       const palabras = promptUsuario.replace(/manda|pasa|envia|un|gif|meme|klint|clin/gi, '').trim();
       const busquedaAuto = palabras.length > 2 ? palabras : 'random meme';
       respuesta += ` [BUSCAR_GIF: ${busquedaAuto}]`;
     }
 
-    // Procesar GIF real en Tenor
     let gifUrlEncontrada = null;
     const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
     if (matchGif) {
