@@ -35,7 +35,7 @@ function obtenerFirebaseUrl() {
 }
 
 // Variable global donde Klint guarda su actividad estética actual
-let actividadActualKlint = { tipo: 'Custom', nombre: 'modo chill' };
+let actividadActualKlint = { tipo: 'Jugando a', nombre: 'minecraft' };
 
 // Servidor Express
 const app = express();
@@ -265,28 +265,27 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// Generación de estado autónomo incluyendo Música y Juegos para la presencia rica de Klint
+// Generación de presencia rica (Jugando / Escuchando) de Discord
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    const modosActividad = [
-      { tipo: ActivityType.Custom, instruccion: "un estado corto de perfil de Discord (máximo 5 palabras)" },
-      { tipo: ActivityType.Listening, instruccion: "nombre corto de un álbum o canción real para escuchar en Spotify" },
-      { tipo: ActivityType.Playing, instruccion: "nombre corto de un videojuego conocido" }
+    const tiposDisponibles = [
+      { type: ActivityType.Playing, tag: 'Jugando a', prompt: 'un nombre de videojuego popular o gracioso (ej: Minecraft, Roblox, GTA V)' },
+      { type: ActivityType.Listening, tag: 'Escuchando a', prompt: 'un artista o género musical (ej: Lofi Hip Hop, Bad Bunny, Radiohead)' },
+      { type: ActivityType.Watching, tag: 'Viendo', prompt: 'un canal de YouTube o video de internet (ej: Memes en YouTube, Twitch)' }
     ];
 
-    const seleccion = modosActividad[Math.floor(Math.random() * modosActividad.length)];
-    let promptEstado = `Inventa ${seleccion.instruccion}. Todo en minúsculas, casual, solo el texto sin comillas ni puntos.`;
+    const seleccion = tiposDisponibles[Math.floor(Math.random() * tiposDisponibles.length)];
+    let promptEstado = `Dame solo ${seleccion.prompt}. Todo en minúsculas, máximo 4 palabras, sin comillas ni puntos.`;
 
     if (peticionManual) {
-      promptEstado = `Genera un texto de estado casual de Discord basado en esta petición: "${peticionManual}". Máximo 5 palabras, solo texto.`;
+      promptEstado = `Dame un texto corto para poner de estado basado en: "${peticionManual}". Máximo 4 palabras, solo texto.`;
     }
 
     const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
-    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
+    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'minecraft';
 
-    // Guardar en la variable global para que la IA sepa lo que está haciendo
     actividadActualKlint = {
-      tipo: seleccion.tipo === ActivityType.Listening ? 'Escuchando' : seleccion.tipo === ActivityType.Playing ? 'Jugando a' : 'Estado de perfil',
+      tipo: seleccion.tag,
       nombre: textoEstado
     };
 
@@ -295,11 +294,14 @@ async function actualizarEstadoIA(peticionManual = null) {
 
     client.user.setPresence({
       status: estadoAleatorio,
-      activities: [{ name: textoEstado, type: seleccion.tipo }]
+      activities: [{
+        name: textoEstado,
+        type: seleccion.type
+      }]
     });
-    logEvent(`Presencia de Klint cambiada a [${actividadActualKlint.tipo}: ${textoEstado}]`);
+    logEvent(`Presencia corregida en Discord: [${seleccion.tag} ${textoEstado}] (${estadoAleatorio})`);
   } catch (error) {
-    logEvent(`Error al generar estado autónomo: ${error.message}`);
+    logEvent(`Error al generar presencia: ${error.message}`);
   }
 }
 
@@ -333,7 +335,6 @@ async function obtenerPresenciaCualquierEntorno(user, guild = null) {
   if (guild) {
     try { member = await guild.members.fetch(user.id); } catch (e) {}
   } else {
-    // Si es DM, buscar al miembro en cualquier servidor compartido que tenga el bot
     for (const g of client.guilds.cache.values()) {
       try {
         member = await g.members.fetch(user.id);
@@ -402,7 +403,6 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
   try {
     const systemInstruction = cargarSystemInstruction();
     
-    // Obtener presencia exacta del usuario que le habla (incluso en DM)
     const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
     const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
 
@@ -440,7 +440,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-TU ACTIVIDAD VISIBLE ACTUAL EN DISCORD (Por si te preguntan qué haces/escuchas): [${actividadActualKlint.tipo}: ${actividadActualKlint.nombre}]
+TU ACTIVIDAD VISIBLE ACTUAL EN DISCORD (Por si te preguntan qué haces/escuchas): [${actividadActualKlint.tipo} ${actividadActualKlint.nombre}]
 DATOS EN TIEMPO REAL DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
 
 ${instruccionGifForzada}
