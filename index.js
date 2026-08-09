@@ -2,7 +2,6 @@ const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCo
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const googleTTS = require('google-tts-api');
 
 // Logs del sistema para el Dashboard Web
 const systemLogs = [];
@@ -169,7 +168,7 @@ async function buscarGifRealTenor(busqueda) {
   return null;
 }
 
-// Generador de Memes en Imagen Real (Memegen.link API)
+// Generador de Memes en Imagen Real
 function generarUrlMemeImagen(textoMeme) {
   const plantillas = ['doge', 'drake', 'catmeme', 'pigeon', 'grim', 'cryingwillis'];
   const plantillaRandom = plantillas[Math.floor(Math.random() * plantillas.length)];
@@ -177,18 +176,14 @@ function generarUrlMemeImagen(textoMeme) {
   return `https://api.memegen.link/images/${plantillaRandom}/_/${textoLimpio}.png`;
 }
 
-// Generador de Audios sintetizados en MP3 con acento latino/peruano
-function obtenerUrlAudioVoz(texto) {
+// Generador nativo e infalible de Audios sintetizados en MP3 con voz
+function obtenerUrlAudioVozNativo(texto) {
   try {
-    const textoLimpio = texto.replace(/[\*\_\`\#]/g, '').slice(0, 180);
-    return googleTTS.getAudioUrl(textoLimpio, {
-      lang: 'es-US',
-      slow: false,
-      host: 'https://translate.google.com',
-      timeout: 10000,
-    });
+    const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#]/g, '').slice(0, 150).trim();
+    if (!textoLimpio) return null;
+    return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textoLimpio)}&tl=es-US&client=tw-ob`;
   } catch (err) {
-    logEvent(`Error generando audio TTS: ${err.message}`);
+    logEvent(`Error generando audio nativo: ${err.message}`);
     return null;
   }
 }
@@ -296,7 +291,7 @@ async function actualizarEstadoIA(peticionManual = null) {
     }
 
     const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
-    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
+    const textoEstado = textoGenerado.trim().replace(/<[^>]*>?/gm, '').replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
@@ -442,11 +437,11 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
-    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz)\b/i.test(promptUsuario);
+    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
 
     let instruccionExtra = '';
     if (pideAudio) {
-      instruccionExtra = "\nREGLA DE AUDIO: El usuario te pidió responder en audio. Escribe una respuesta corta y casual para ser sintetizada en voz.";
+      instruccionExtra = "\nREGLA DE AUDIO OBLIGATORIA: El usuario pidió responder en AUDIO. Escribe ÚNICAMENTE la frase corta que vas a decir en el audio. No digas 'aquí va' ni prometas nada, solo escribe el texto a hablar.";
     } else if (pideMemeImagen) {
       instruccionExtra = "\nREGLA DE MEME EN IMAGEN: El usuario te pidió un meme en imagen. Agrega al final [GENERAR_MEME: texto_del_meme].";
     } else if (pideGifExplicitamente) {
@@ -480,14 +475,15 @@ ${promptUsuario}`;
       }
     }
 
-    let respuesta = await consultarGemini(parts, 120);
+    let respuestaRaw = await consultarGemini(parts, 120);
+    let respuesta = respuestaRaw.replace(/<[^>]*>?/gm, '').trim();
 
     let gifUrlEncontrada = null;
     let memeImagenUrl = null;
     let audioUrlGenerado = null;
 
     if (pideAudio) {
-      audioUrlGenerado = obtenerUrlAudioVoz(respuesta);
+      audioUrlGenerado = obtenerUrlAudioVozNativo(respuesta);
     } else if (pideMemeImagen || respuesta.includes('[GENERAR_MEME:')) {
       const matchMeme = respuesta.match(/\[GENERAR_MEME:\s*([^\]]+)\]/i);
       const textoMeme = matchMeme ? matchMeme[1] : 'cuando pasa xd';
@@ -513,7 +509,7 @@ ${promptUsuario}`;
     }
 
     return { 
-      respuesta, 
+      respuesta: respuesta || 'aquí tienes', 
       gifUrl: gifUrlEncontrada, 
       memeImagenUrl, 
       audioUrl: audioUrlGenerado, 
@@ -542,7 +538,7 @@ client.on('interactionCreate', async interaction => {
     let mensajeFinal = respuesta;
     if (gifUrl) mensajeFinal = `${respuesta}\n${gifUrl}`.trim();
 
-    await interaction.editReply({ content: mensajeFinal, files: archivosAdjuntos });
+    await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
   }
 });
 
@@ -585,11 +581,12 @@ client.on('messageCreate', async message => {
     if (gifUrl) textoFinal = `${respuesta}\n${gifUrl}`.trim();
 
     const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
+    const contenidoMensaje = textoLimpio || (archivosAdjuntos.length > 0 ? 'aquí tienes' : 'xd');
 
     if (esDM || conteoMensajes <= 3) {
-      await message.channel.send({ content: textoLimpio, files: archivosAdjuntos });
+      await message.channel.send({ content: contenidoMensaje, files: archivosAdjuntos });
     } else {
-      await message.reply({ content: textoLimpio, files: archivosAdjuntos });
+      await message.reply({ content: contenidoMensaje, files: archivosAdjuntos });
     }
   }
 });
