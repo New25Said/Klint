@@ -121,7 +121,7 @@ const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 ];
 
-async function consultarGemini(parts, maxTokens = 100) {
+async function consultarGemini(parts, maxTokens = 120) {
   let ultimoError = null;
 
   for (const endpoint of MODELOS_FALLBACK) {
@@ -147,6 +147,25 @@ async function consultarGemini(parts, maxTokens = 100) {
   }
 
   throw new Error(`Error en API: ${ultimoError}`);
+}
+
+// BÚSQUEDA DE GIFS REALES EN TENOR API
+async function buscarGifRealTenor(busqueda) {
+  try {
+    const apiKey = 'LIVDSRZULELA'; // Key de consulta pública de Tenor API
+    const url = `https://g.tenor.com/v1/search?q=${encodeURIComponent(busqueda)}&key=${apiKey}&limit=5`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        const itemRandom = data.results[Math.floor(Math.random() * data.results.length)];
+        return itemRandom.itemurl || itemRandom.url;
+      }
+    }
+  } catch (err) {
+    logEvent(`Error buscando GIF en Tenor: ${err.message}`);
+  }
+  return null;
 }
 
 // REST API para Firebase Realtime Database
@@ -243,10 +262,10 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// Generación de estado impredecible y libre por la IA
+// Generación de estado autónomo
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    let promptEstado = 'Inventa un estado de Discord totalmente libre, aleatorio que pondría un usuario en su perfil (máximo 5-6 palabras). Responde ÚNICAMENTE con el texto, ponle la ortagrafia que quieras como si fueras un humano';
+    let promptEstado = 'Inventa un estado de Discord totalmente libre, divertido o aleatorio que pondría un usuario en su perfil (máximo 5 palabras). Responde ÚNICAMENTE con el texto, en minúsculas y sin comillas.';
     if (peticionManual) {
       promptEstado = `Genera un estado libre para Discord basado en esto: ${peticionManual}. Máximo 5 palabras, solo texto.`;
     }
@@ -290,32 +309,49 @@ async function urlToGenerativePart(url) {
   }
 }
 
-function obtenerDetallesPresenciaCompleta(member) {
-  if (!member || !member.presence) return '';
+// Extracción en vivo y forzada de miembros y estados de perfil
+async function obtenerDetallesIntegrantesServidor(guild) {
+  if (!guild) return 'Entorno DM (Sin lista de servidor)';
+  try {
+    // Forzamos la descarga de la lista completa de miembros desde los servidores de Discord
+    const miembros = await guild.members.fetch();
+    const resumenMiembros = [];
 
-  const pres = member.presence;
-  let detalles = [];
+    miembros.forEach(m => {
+      const esBot = m.user.bot ? '[BOT]' : '[USUARIO]';
+      const pres = m.presence;
+      let estadoTexto = 'Sin estado';
+      let actividadTexto = '';
 
-  if (pres.activities && pres.activities.length > 0) {
-    pres.activities.forEach(act => {
-      if (act.type === ActivityType.Custom || act.type === 4) {
-        const texto = act.state || act.name || '';
-        if (texto) detalles.push(`Estado de perfil: "${texto}"`);
-      } else if (act.name) {
-        detalles.push(`Haciendo: ${act.name}`);
+      if (pres && pres.activities && pres.activities.length > 0) {
+        pres.activities.forEach(act => {
+          if (act.type === 4 || act.type === ActivityType.Custom) {
+            estadoTexto = act.state || act.name || 'Sin estado';
+          } else if (act.name) {
+            actividadTexto = ` (${act.name})`;
+          }
+        });
       }
-    });
-  }
 
-  return detalles.length > 0 ? ` (${detalles.join(', ')})` : '';
+      resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}, Tag: <@${m.id}>) ${esBot} [Estado Perfil: "${estadoTexto}"${actividadTexto}]`);
+    });
+
+    return resumenMiembros.slice(0, 25).join('\n'); // Retorna hasta 25 miembros activos
+  } catch (err) {
+    logEvent(`Error descargando miembros del servidor: ${err.message}`);
+    return 'No se pudo sincronizar la lista de miembros';
+  }
 }
 
 // Procesar respuesta
-async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
+async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     
-    // 1. Historial en formato limpio
+    // 1. Cargar la lista completa de miembros y sus estados de perfil en vivo
+    const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
+
+    // 2. Historial en formato limpio
     const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuarioNombre = m.author.username;
@@ -323,42 +359,35 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       let contenido = m.content;
 
       if (m.stickers && m.stickers.size > 0) {
-        const nombresStickers = m.stickers.map(s => `[Sticker: ${s.name}]`).join(' ');
+        const nombresStickers = m.stickers.map(s => `[Sticker enviado: ${s.name}]`).join(' ');
         contenido = `${contenido} ${nombresStickers}`.trim();
       }
 
-      let infoPresencia = '';
-      if (m.member) {
-        infoPresencia = obtenerDetallesPresenciaCompleta(m.member);
-      }
-      
-      return `${usuarioNombre} (<@${usuarioId}>)${infoPresencia}: ${contenido}`;
+      return `${usuarioNombre} (<@${usuarioId}>): ${contenido}`;
     }).join('\n');
 
-    // 2. Memorias del autor
+    // 3. Memorias del autor
     let contextoMemoriaAutor = '';
     if (usuarioAutor) {
       const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
         const ultimasMemorias = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
-        contextoMemoriaAutor = `\nRECUERDOS QUE TIENES DE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
+        contextoMemoriaAutor = `\nRECUERDOS DE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
       }
     }
-
-    // 3. Usuarios conocidos
-    const personasConocidas = await obtenerTodosLosUsuariosConocidos();
-    const listaConocidosTexto = personasConocidas.length > 0
-      ? `\nCONOCIDOS DE LA COMUNIDAD:\n${personasConocidas.join('\n')}\n`
-      : '';
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
+INSTRUCCIÓN GIFS: Si te piden enviar un GIF o si sientes ganas de enviar un meme/gif, agrega exactamente este comando al final de tu texto: [BUSCAR_GIF: término_de_búsqueda]. Ejemplo: "jaja ya fue [BUSCAR_GIF: gato riendo]".
 ${contextoMemoriaAutor}
-${listaConocidosTexto}
+
+LISTA REAL Y EN VIVO DE MIEMBROS Y ESTADOS DE PERFIL DE ESTE SERVIDOR:
+${miembrosServidorTexto}
+
 HISTORIAL DEL CHAT:
 ${historialFormateado}
 
@@ -376,16 +405,25 @@ ${promptUsuario}`;
       }
     }
 
-    const respuesta = await consultarGemini(parts, 100);
+    let respuesta = await consultarGemini(parts, 120);
+
+    // Procesar envío de GIF real si la IA incluyó la instrucción [BUSCAR_GIF: ...]
+    let gifUrlEncontrada = null;
+    const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
+    if (matchGif) {
+      const terminoBusqueda = matchGif[1].trim();
+      respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
+      gifUrlEncontrada = await buscarGifRealTenor(terminoBusqueda);
+    }
 
     if (usuarioAutor) {
       evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
     }
 
-    return { respuesta, conteoMensajes: mensajesPrevios.size };
+    return { respuesta, gifUrl: gifUrlEncontrada, conteoMensajes: mensajesPrevios.size };
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`);
-    return { respuesta: 'me dio un lag xd', conteoMensajes: 0 };
+    return { respuesta: 'me dio un lag xd', gifUrl: null, conteoMensajes: 0 };
   }
 }
 
@@ -397,12 +435,15 @@ client.on('interactionCreate', async interaction => {
     await interaction.deferReply();
     const pregunta = interaction.options.getString('pregunta');
     const esDM = !interaction.guild;
-    const { respuesta } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user);
+    const { respuesta, gifUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
     
-    if (respuesta.length > 2000) {
-      await interaction.editReply(respuesta.slice(0, 1995) + '...');
+    let mensajeFinal = respuesta;
+    if (gifUrl) mensajeFinal = `${respuesta}\n${gifUrl}`.trim();
+
+    if (mensajeFinal.length > 2000) {
+      await interaction.editReply(mensajeFinal.slice(0, 1995) + '...');
     } else {
-      await interaction.editReply(respuesta);
+      await interaction.editReply(mensajeFinal);
     }
   }
 });
@@ -436,9 +477,12 @@ client.on('messageCreate', async message => {
     await message.channel.sendTyping();
     
     const adjuntosArray = Array.from(message.attachments.values());
-    const { respuesta, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author);
+    const { respuesta, gifUrl, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author, message.guild);
     
-    const textoLimpio = respuesta.length > 2000 ? respuesta.slice(0, 1995) + '...' : respuesta;
+    let textoFinal = respuesta;
+    if (gifUrl) textoFinal = `${respuesta}\n${gifUrl}`.trim();
+
+    const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
 
     if (esDM || conteoMensajes <= 3) {
       await message.channel.send(textoLimpio);
