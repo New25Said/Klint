@@ -442,7 +442,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
-    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio)\b/i.test(promptUsuario);
+    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz)\b/i.test(promptUsuario);
 
     let instruccionExtra = '';
     if (pideAudio) {
