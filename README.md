@@ -55,3 +55,9 @@
 ## 🛠️ Arquitectura del Dashboard Web & APIs REST
 
 El servidor `Express` expone endpoints RESTful en el puerto configurado (`PORT: 10000` por defecto) para administración remota y pruebas:
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia **MIT** — consulta el archivo [`LICENSE`](./LICENSE) para más detalles.
+
+Copyright (c) 2026 **Said Sandoval Pérez**.
