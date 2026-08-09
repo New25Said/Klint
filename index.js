@@ -19,7 +19,10 @@ function logEvent(msg, esError = false) {
   if (systemLogs.length > 50) systemLogs.pop();
 }
 
-// Control en tiempo real desde la Web
+// Control de Actividad para Revivir Chat
+const canalUltimaActividad = new Map();
+
+// Feature Toggles (Control en tiempo real desde la Web)
 const featureToggles = {
   audio: true,
   memes: true,
@@ -100,6 +103,7 @@ app.post('/api/force-status', validarKey, async (req, res) => {
   res.json({ success: true });
 });
 
+// Control de Features desde la web
 app.post('/api/toggle-feature', validarKey, (req, res) => {
   const { feature, value } = req.body;
   if (featureToggles.hasOwnProperty(feature)) {
@@ -111,6 +115,7 @@ app.post('/api/toggle-feature', validarKey, (req, res) => {
   }
 });
 
+// Obtener memorias guardadas en Firebase
 app.post('/api/get-memories', validarKey, async (req, res) => {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl) return res.json({ users: {} });
@@ -123,6 +128,7 @@ app.post('/api/get-memories', validarKey, async (req, res) => {
   }
 });
 
+// Eliminar memoria de un usuario
 app.post('/api/delete-memory', validarKey, async (req, res) => {
   const { userId, memoryKey } = req.body;
   const dbUrl = obtenerFirebaseUrl();
@@ -136,6 +142,7 @@ app.post('/api/delete-memory', validarKey, async (req, res) => {
   }
 });
 
+// Enviar mensaje a un canal de Discord desde la Web
 app.post('/api/send-discord-msg', validarKey, async (req, res) => {
   const { channelId, message } = req.body;
   try {
@@ -151,6 +158,7 @@ app.post('/api/send-discord-msg', validarKey, async (req, res) => {
   }
 });
 
+// Endpoint de Reset Profundo
 app.post('/api/deep-reset', validarKey, async (req, res) => {
   logEvent('Iniciando proceso de Limpieza Profunda...');
   systemLogs = [];
@@ -175,6 +183,7 @@ app.post('/api/deep-reset', validarKey, async (req, res) => {
   res.json({ success: true, message: 'Limpieza de RAM y estado completada en el servidor actual.' });
 });
 
+// Chat Web
 app.post('/api/web-chat', async (req, res) => {
   if (!featureToggles.webChat) {
     return res.json({ response: 'el chat web está pausado temporalmente por el admin xd' });
@@ -247,9 +256,10 @@ client.once('clientReady', async () => {
 
   await actualizarEstadoIA();
   programarCambioEstadoRandom();
-  iniciarMonitoreoRevivirChat();
+  iniciarMonitorRevivirChat();
 });
 
+// API CheapShark para Ofertas
 async function buscarOfertasJuegos() {
   try {
     const res = await fetch('https://www.cheapshark.com/api/1.0/deals?storeID=1&upperPrice=15&pageSize=5');
@@ -263,11 +273,11 @@ async function buscarOfertasJuegos() {
   return 'No encontré ofertas en este momento mano xd';
 }
 
-// Modelos Oficiales Activos Gemini API v1beta
+// Fallback Completo de Modelos Gemini
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent'
 ];
 
 async function consultarGemini(parts, maxTokens = 120) {
@@ -295,26 +305,30 @@ async function consultarGemini(parts, maxTokens = 120) {
     }
   }
 
-  throw new Error(`Error en API Gemini: ${ultimoError}`);
+  logEvent(`Fallback Gemini agotado: ${ultimoError}`, true);
+  return 'toy medio pendejo ahorita mano xd';
 }
 
-// Búsqueda de GIFs estrictamente MÁXIMO 1
-async function buscarGifsReales(busqueda) {
+// Búsqueda de GIFs con GIPHY y Fallback a Tenor
+async function buscarGifsReales(busqueda, cantidad = 1) {
   if (!featureToggles.gifs) return [];
+  const limiteMax = Math.min(Math.max(cantidad, 1), 2);
   const termino = busqueda || 'funny meme';
   const urlsEncontradas = [];
 
   const giphyKey = process.env.GIPHY_API_KEY;
   if (giphyKey) {
     try {
-      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${giphyKey}&q=${encodeURIComponent(termino)}&limit=1&rating=g`;
+      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${giphyKey}&q=${encodeURIComponent(termino)}&limit=10&rating=g`;
       const resGiphy = await fetch(urlGiphy);
       if (resGiphy.ok) {
         const dataGiphy = await resGiphy.json();
         if (dataGiphy.data && dataGiphy.data.length > 0) {
-          const gifUrl = dataGiphy.data[0].images?.original?.url || dataGiphy.data[0].images?.downsized_medium?.url;
-          if (gifUrl) urlsEncontradas.push(gifUrl);
-          return urlsEncontradas;
+          for (let i = 0; i < limiteMax && i < dataGiphy.data.length; i++) {
+            const gifUrl = dataGiphy.data[i].images?.original?.url || dataGiphy.data[i].images?.downsized_medium?.url;
+            if (gifUrl) urlsEncontradas.push(gifUrl);
+          }
+          if (urlsEncontradas.length > 0) return urlsEncontradas;
         }
       }
     } catch (err) {
@@ -323,14 +337,16 @@ async function buscarGifsReales(busqueda) {
   }
 
   try {
-    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=1`;
+    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=10`;
     const res = await fetch(urlTenor);
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
-        const gifDirecto = data.results[0].media?.[0]?.gif?.url || data.results[0].url;
-        if (gifDirecto) urlsEncontradas.push(gifDirecto);
-        return urlsEncontradas;
+        for (let i = 0; i < limiteMax && i < data.results.length; i++) {
+          const gifDirecto = data.results[i].media?.[0]?.gif?.url || data.results[i].url;
+          if (gifDirecto) urlsEncontradas.push(gifDirecto);
+        }
+        if (urlsEncontradas.length > 0) return urlsEncontradas;
       }
     }
   } catch (err) {
@@ -340,6 +356,7 @@ async function buscarGifsReales(busqueda) {
   return ['https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdWZ4OHl0ZG9zcHNmd3NwcjExMjl2MmVlZnVpM2VydjBjcmsxMG90ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7abKhOpu0NwenH3O/giphy.gif'];
 }
 
+// Generador de Memes en Imagen Real
 function generarUrlMemeImagen(textoMeme) {
   if (!featureToggles.memes) return null;
   try {
@@ -366,16 +383,14 @@ function generarUrlMemeImagen(textoMeme) {
       ) || '_';
     };
 
-    const cleanArriba = sanearTexto(textoArriba);
-    const cleanAbajo = sanearTexto(textoAbajo);
-
-    return `https://api.memegen.link/images/${plantillaRandom}/${cleanArriba}/${cleanAbajo}.png`;
+    return `https://api.memegen.link/images/${plantillaRandom}/${sanearTexto(textoArriba)}/${sanearTexto(textoAbajo)}.png`;
   } catch (err) {
     logEvent(`Error formando URL de meme: ${err.message}`, true);
     return null;
   }
 }
 
+// Generador de Audios
 function obtenerUrlAudioVozNativo(texto) {
   if (!featureToggles.audio) return null;
   try {
@@ -388,6 +403,7 @@ function obtenerUrlAudioVozNativo(texto) {
   }
 }
 
+// REST API Firebase
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl) return null;
@@ -440,7 +456,7 @@ Si NO es importante responde: NO.
 Si SÍ es importante, responde un resumen super corto de una frase.`;
 
     const resultado = await consultarGemini([{ text: promptEvaluacion }], 60);
-    const textoRespuesta = resultado.trim();
+    const textoRespuesta = (resultado || '').trim();
 
     const resumenParaGuardar = (!textoRespuesta || textoRespuesta.toUpperCase().startsWith('NO')) ? null : textoRespuesta;
     await actualizarPerfilYMemoria(user.id, user.username, user.displayName || user.username, mensajeUsuario, resumenParaGuardar);
@@ -449,6 +465,7 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
+// CAMBIO DE ESTADO ALEATORIO DE 5 A 15 MINUTOS
 async function actualizarEstadoIA(peticionManual = null) {
   try {
     let promptEstado = 'Inventa un estado de perfil de Discord informal y espontáneo (máximo 5 palabras). Todo en minúsculas, casual, sin puntos ni comillas.';
@@ -457,7 +474,7 @@ async function actualizarEstadoIA(peticionManual = null) {
     }
 
     const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
-    const textoEstado = textoGenerado.trim().replace(/<[^>]*>?/gm, '').replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
+    const textoEstado = (textoGenerado || 'pensando en la nada').trim().replace(/<[^>]*>?/gm, '').replace(/^["']|["']$/g, '').toLowerCase();
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
@@ -477,8 +494,8 @@ async function actualizarEstadoIA(peticionManual = null) {
   }
 }
 
-// Dado de cambio de estado entre 5 y 15 minutos
 function programarCambioEstadoRandom() {
+  // Lanzar dado entre 5 y 15 minutos
   const minutosRandom = Math.floor(Math.random() * (15 - 5 + 1)) + 5;
   setTimeout(async () => {
     await actualizarEstadoIA();
@@ -486,33 +503,35 @@ function programarCambioEstadoRandom() {
   }, minutosRandom * 60 * 1000);
 }
 
-// Monitoreo para Revivir Chat Inactivo (2 Horas de silencio)
-function iniciarMonitoreoRevivirChat() {
+// EVENTO DE REVIVIR CHAT
+function iniciarMonitorRevivirChat() {
   setInterval(async () => {
     if (!client.isReady()) return;
+    const ahora = Date.now();
+    const INACTIVIDAD_MS = 3 * 60 * 60 * 1000; // 3 horas de inactividad
 
-    for (const guild of client.guilds.cache.values()) {
-      try {
-        const textChannels = guild.channels.cache.filter(c => c.isTextBased() && c.permissionsFor(guild.members.me).has('SendMessages'));
-        for (const channel of textChannels.values()) {
-          const messages = await channel.messages.fetch({ limit: 1 });
-          const lastMsg = messages.first();
-          if (lastMsg) {
-            const horasInactivo = (Date.now() - lastMsg.createdTimestamp) / (1000 * 60 * 60);
-            if (horasInactivo >= 2) {
-              const promptRevivir = "El chat ha estado callado por horas. Di una sola frase muy corta y casual en minúsculas para revivir el chat o preguntar qué hacen.";
-              const frase = await consultarGemini([{ text: promptRevivir }], 40);
-              await channel.send(frase.toLowerCase().trim());
-              logEvent(`Chat revivido en el canal ${channel.name} de ${guild.name}`);
-              break;
-            }
+    for (const [channelId, lastTime] of canalUltimaActividad.entries()) {
+      if (ahora - lastTime > INACTIVIDAD_MS) {
+        canalUltimaActividad.set(channelId, ahora);
+        try {
+          const channel = await client.channels.fetch(channelId).catch(() => null);
+          if (channel && channel.isTextBased() && channel.permissionsFor(client.user)?.has('SendMessages')) {
+            const frasesRevivir = [
+              'oe revivan el chat pe xd',
+              'hablen pe están bien muertos',
+              '¿alguien pa jugar algo o qué?',
+              'mucho silencio por acá csm'
+            ];
+            const fraseRandom = frasesRevivir[Math.floor(Math.random() * frasesRevivir.length)];
+            await channel.send(fraseRandom);
+            logEvent(`[Revivir Chat] Mensaje enviado al canal ${channelId}`);
           }
+        } catch (e) {
+          logEvent(`Error al revivir chat: ${e.message}`, true);
         }
-      } catch (err) {
-        logEvent(`Error verificando inactividad de chat: ${err.message}`, true);
       }
     }
-  }, 30 * 60 * 1000); // Revisa cada 30 min
+  }, 15 * 60 * 1000);
 }
 
 async function urlToGenerativePart(url) {
@@ -531,20 +550,72 @@ async function urlToGenerativePart(url) {
   }
 }
 
-function obtenerDetallesIntegrantesServidorOptimizado(guild) {
+async function obtenerPresenciaCualquierEntorno(user, guild = null) {
+  let member = null;
+
+  if (guild) {
+    try { member = guild.members.cache.get(user.id); } catch (e) {}
+  } else if (client.isReady()) {
+    for (const g of client.guilds.cache.values()) {
+      member = g.members.cache.get(user.id);
+      if (member && member.presence) break;
+    }
+  }
+
+  if (!member || !member.presence) return 'Sin estado/Offline';
+
+  const pres = member.presence;
+  let detalles = [];
+
+  if (pres.activities && pres.activities.length > 0) {
+    pres.activities.forEach(act => {
+      if (act.type === 4 || act.type === ActivityType.Custom) {
+        const texto = act.state || act.name || '';
+        if (texto) detalles.push(`Estado de perfil: "${texto}"`);
+      } else if (act.name === 'Spotify') {
+        const cancion = act.details ? `${act.details} de ${act.state}` : 'Spotify';
+        detalles.push(`Escuchando en Spotify: ${cancion}`);
+      } else if (act.name) {
+        detalles.push(`Jugando: ${act.name}`);
+      }
+    });
+  }
+
+  return detalles.length > 0 ? detalles.join(' | ') : 'En línea (sin actividad visible)';
+}
+
+async function obtenerDetallesIntegrantesServidor(guild) {
   if (!guild) return 'Entorno DM (Sin lista masiva de servidor)';
   try {
+    // Uso de caché para evitar el Opcode 8 rate-limit de WebSocket
     const miembros = guild.members.cache;
     const resumenMiembros = [];
 
     miembros.forEach(m => {
       const esBot = m.user.bot ? '[BOT]' : '[USUARIO]';
-      resumenMiembros.push(`- ${m.user.username} (Tag: <@${m.id}>) ${esBot}`);
+      const pres = m.presence;
+      let estadoTexto = 'Sin estado';
+      let actividadTexto = '';
+
+      if (pres && pres.activities && pres.activities.length > 0) {
+        pres.activities.forEach(act => {
+          if (act.type === 4 || act.type === ActivityType.Custom) {
+            estadoTexto = act.state || act.name || 'Sin estado';
+          } else if (act.name === 'Spotify') {
+            actividadTexto = ` (Spotify: ${act.details} - ${act.state})`;
+          } else if (act.name) {
+            actividadTexto = ` (Jugando: ${act.name})`;
+          }
+        });
+      }
+
+      resumenMiembros.push(`- ${m.user.username} (Tag: <@${m.id}>) ${esBot} [Perfil: "${estadoTexto}"${actividadTexto}]`);
     });
 
-    return resumenMiembros.slice(0, 20).join('\n');
+    return resumenMiembros.slice(0, 25).join('\n');
   } catch (err) {
-    return 'Miembros del servidor cargados en caché local.';
+    logEvent(`Error obteniendo integrantes del servidor: ${err.message}`, true);
+    return 'No se pudo sincronizar la lista de miembros';
   }
 }
 
@@ -552,15 +623,17 @@ function obtenerDetallesIntegrantesServidorOptimizado(guild) {
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
-    const miembrosServidorTexto = obtenerDetallesIntegrantesServidorOptimizado(guild);
+    
+    const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
+    const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
 
     let historialFormateado = '';
     let conteoPrevio = 0;
 
     if (canal) {
-      const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
+      const mensajesPrevios = await canal.messages.fetch({ limit: 5 }).catch(() => new Map());
       conteoPrevio = mensajesPrevios.size;
-      historialFormateado = mensajesPrevios.reverse().map(m => {
+      historialFormateado = Array.from(mensajesPrevios.values()).reverse().map(m => {
         const usuarioNombre = m.author.username;
         const usuarioId = m.author.id;
         let contenido = m.content;
@@ -586,7 +659,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
 
-    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs)\b/i.test(promptUsuario);
+    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs|dos gifs)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
     const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
 
@@ -596,12 +669,14 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     } else if (pideMemeImagen) {
       instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea un meme corto en dos líneas usando el tag [GENERAR_MEME: texto arriba | texto abajo]. NUNCA escribas el tag en el texto visible del mensaje.";
     } else if (pideGifExplicitamente) {
-      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje. Se enviará únicamente 1 GIF.";
+      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje.";
     }
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
+DATOS DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
+INSTALACIÓN Y APPS/COMANDOS DEL SERVIDOR: Si el usuario pide invocar/usar otras apps o comandos de Discord, instrúyelo o indícale cómo activarlos.
 ${instruccionExtra}
 ${contextoMemoriaAutor}
 
@@ -626,7 +701,7 @@ ${promptUsuario}`;
     }
 
     let respuestaRaw = await consultarGemini(parts, 120);
-    let respuesta = respuestaRaw.replace(/<[^>]*>?/gm, '').trim();
+    let respuesta = (respuestaRaw || 'aquí tienes').replace(/<[^>]*>?/gm, '').trim();
 
     let gifsUrlsEncontradas = [];
     let memeImagenUrl = null;
@@ -645,7 +720,7 @@ ${promptUsuario}`;
     if (matchGif || pideGifExplicitamente) {
       let terminoBusqueda = matchGif ? matchGif[1].trim() : promptUsuario.replace(/\b(manda|pasa|envia|un|gif|gifs|de)\b/gi, '').trim();
       if (!terminoBusqueda) terminoBusqueda = 'funny meme';
-      gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda);
+      gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda, 1);
     }
 
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
@@ -665,7 +740,7 @@ ${promptUsuario}`;
   }
 }
 
-// Helper para construir tablero del Tres en Raya (Fijados símbolos visibles válidos)
+// TRES EN RAYA INTELIGENTE (IA TÁCTICA)
 function construirTableroTicTacToe(tablero) {
   const rows = [];
   for (let i = 0; i < 3; i++) {
@@ -673,9 +748,11 @@ function construirTableroTicTacToe(tablero) {
     for (let j = 0; j < 3; j++) {
       const idx = i * 3 + j;
       const valor = tablero[idx];
+      // Corrección de error Discord API BASE_TYPE_REQUIRED
+      const displayLabel = (valor === '-') ? '➖' : valor;
       const btn = new ButtonBuilder()
         .setCustomId(`tictactoe_${i}_${j}`)
-        .setLabel(valor === '-' ? '➖' : valor)
+        .setLabel(displayLabel)
         .setStyle(valor === '❌' ? ButtonStyle.Danger : valor === '⭕' ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setDisabled(valor !== '-');
       row.addComponents(btn);
@@ -699,6 +776,41 @@ function verificarGanadorTicTacToe(board) {
   return board.includes('-') ? null : 'EMPATE';
 }
 
+function obtenerMejorMovimientoTicTacToe(board) {
+  // 1. Intentar ganar en esta jugada
+  for (let i = 0; i < 9; i++) {
+    if (board[i] === '-') {
+      board[i] = '⭕';
+      if (verificarGanadorTicTacToe(board) === '⭕') {
+        board[i] = '-';
+        return i;
+      }
+      board[i] = '-';
+    }
+  }
+  // 2. Bloquear victoria del rival
+  for (let i = 0; i < 9; i++) {
+    if (board[i] === '-') {
+      board[i] = '❌';
+      if (verificarGanadorTicTacToe(board) === '❌') {
+        board[i] = '-';
+        return i;
+      }
+      board[i] = '-';
+    }
+  }
+  // 3. Ocupar casilla centro si está libre
+  if (board[4] === '-') return 4;
+
+  // 4. Elegir esquina
+  const esquinas = [0, 2, 6, 8].filter(idx => board[idx] === '-');
+  if (esquinas.length > 0) return esquinas[Math.floor(Math.random() * esquinas.length)];
+
+  // 5. Elegir cualquiera disponible
+  const casillasLibres = board.map((v, i) => v === '-' ? i : null).filter(v => v !== null);
+  return casillasLibres[Math.floor(Math.random() * casillasLibres.length)];
+}
+
 // Slash Commands e Interacciones
 client.on('interactionCreate', async interaction => {
   if (interaction.isChatInputCommand()) {
@@ -713,12 +825,11 @@ client.on('interactionCreate', async interaction => {
       if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
 
       let mensajeFinal = respuesta;
-      await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
-
-      // Si Klint requiere enviar el GIF o contenido extra por separado
       if (gifsUrls.length > 0) {
-        await interaction.followUp({ content: gifsUrls[0] });
+        mensajeFinal = `${respuesta}\n${gifsUrls[0]}`.trim();
       }
+
+      await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
     }
 
     if (interaction.commandName === 'status') {
@@ -738,7 +849,7 @@ client.on('interactionCreate', async interaction => {
 
       const memeTexto = `cuando ${nick} usa /status | y klint ya se acuerda de todo xd`;
       const memeUrl = generarUrlMemeImagen(memeTexto);
-      const gifsUrls = await buscarGifsReales('cool robot');
+      const gifsUrls = await buscarGifsReales('cool robot', 1);
 
       const archivosAdjuntos = [];
       if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
@@ -754,14 +865,12 @@ ${resumenMemoria}
 1. 🎙️ **Notas de voz:** Pídeme "manda un audio" y te responderé en MP3.
 2. 🖼️ **Generador de Memes e Imágenes:** Pídeme "haz un meme" y crearé una imagen personalizada.
 3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir un GIF animado real.
-4. 👀 **Presencia en Tiempo Real:** Reviso actividad del servidor sin saturar Gateway.
-5. 💬 **Memoria Persistente:** Recuerdo tus gustos y conversaciones en Firebase.`;
+4. 👀 **Presencia en Tiempo Real:** Leo tu estado personalizado de perfil y si escuchas Spotify o juegas.
+5. 💬 **Memoria Persistente:** Recuerdo tus gustos y conversaciones en Firebase.
+
+${gifsUrls.join('\n')}`;
 
       await interaction.editReply({ content: mensajeStatus, files: archivosAdjuntos });
-
-      if (gifsUrls.length > 0) {
-        await interaction.followUp({ content: gifsUrls[0] });
-      }
     }
 
     if (interaction.commandName === 'ofertas') {
@@ -777,7 +886,7 @@ ${resumenMemoria}
     }
   }
 
-  // Manejo interactivo de botones para Tres en Raya
+  // Manejo de botones para Tres en Raya
   if (interaction.isButton() && interaction.customId.startsWith('tictactoe_')) {
     const message = interaction.message;
     const parts = interaction.customId.split('_');
@@ -788,7 +897,7 @@ ${resumenMemoria}
     let board = [];
     message.components.forEach(row => {
       row.components.forEach(btn => {
-        const label = btn.label.trim();
+        const label = btn.label ? btn.label.trim() : '';
         if (label === '❌') board.push('❌');
         else if (label === '⭕') board.push('⭕');
         else board.push('-');
@@ -799,6 +908,7 @@ ${resumenMemoria}
       return interaction.reply({ content: 'Esa casilla ya está ocupada pe mano.', ephemeral: true });
     }
 
+    // Jugada del Usuario
     board[idxClick] = '❌';
 
     let ganador = verificarGanadorTicTacToe(board);
@@ -807,9 +917,9 @@ ${resumenMemoria}
       return interaction.update({ content: `❌ **TRES EN RAYA DE KLINT** - ${statusText}`, components: construirTableroTicTacToe(board) });
     }
 
-    const casillasLibres = board.map((v, i) => v === '-' ? i : null).filter(v => v !== null);
-    if (casillasLibres.length > 0) {
-      const eleccionKlint = casillasLibres[Math.floor(Math.random() * casillasLibres.length)];
+    // Jugada Inteligente de Klint
+    const eleccionKlint = obtenerMejorMovimientoTicTacToe(board);
+    if (eleccionKlint !== undefined && eleccionKlint !== null) {
       board[eleccionKlint] = '⭕';
     }
 
@@ -825,6 +935,11 @@ ${resumenMemoria}
 // Mensajes Directos y Servidores
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
+
+  // Registrar timestamp para revivir chat
+  if (message.guild && message.channel.isTextBased()) {
+    canalUltimaActividad.set(message.channel.id, Date.now());
+  }
 
   try {
     const esDM = !message.guild;
@@ -858,19 +973,28 @@ client.on('messageCreate', async message => {
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
       if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
 
-      const textoLimpio = respuesta.length > 2000 ? respuesta.slice(0, 1995) + '...' : respuesta;
+      let textoFinal = respuesta;
+      let gifParaEnviar = gifsUrls.length > 0 ? gifsUrls[0] : null;
+
+      if (gifParaEnviar) {
+        textoFinal = `${respuesta}\n${gifParaEnviar}`.trim();
+      }
+
+      const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
       const contenidoMensaje = textoLimpio || (archivosAdjuntos.length > 0 ? 'aquí tienes' : 'xd');
 
-      // Primer Envío principal
+      // Primer Envío
       if (esDM || conteoMensajes <= 3) {
         await message.channel.send({ content: contenidoMensaje, files: archivosAdjuntos });
       } else {
         await message.reply({ content: contenidoMensaje, files: archivosAdjuntos });
       }
 
-      // Segundo mensaje en caso de requerir enviar GIF por separado o enlace dinámico
-      if (gifsUrls.length > 0) {
-        await message.channel.send(gifsUrls[0]);
+      // Lógica de razonamiento para un segundo mensaje si es requerido
+      if (/\b(dos mensajes|envia otro|manda otra cosa|segundo mensaje)\b/i.test(message.content)) {
+        setTimeout(async () => {
+          await message.channel.send('y por cierto, aquí está lo otro que me pediste pe xd');
+        }, 1500);
       }
     }
   } catch (err) {
