@@ -10,7 +10,7 @@ function cargarSystemInstruction() {
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     console.error('No se pudo cargar system_instruction.txt, usando predeterminado:', error);
-    return 'Eres Klint, un usuario más de la comunidad de Discord. Habla relajado y casual.';
+    return 'Eres Klint, un usuario más de la comunidad de Discord. Habla relaxed y casual.';
   }
 }
 
@@ -26,7 +26,7 @@ app.listen(PORT, () => {
   console.log(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping con la URL en duro para Render Free Tier (cada 10 minutos)
+// Auto-ping con la URL fija de Render para mantenerlo activo
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -78,7 +78,7 @@ client.once('clientReady', async () => {
   programarSiguienteCambioEstado();
 });
 
-// Banco local de estados casuales para ahorrar cuota
+// Banco local de estados casuales para no agotar la cuota
 const ACTIVIDADES_CASUALES = [
   'viendo videos en youtube',
   'escuchando lofi',
@@ -139,7 +139,7 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Petición directa a REST API de Gemini mediante fetch
+// Petición directa a REST API de Gemini v1 con gemini-2.5-flash
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -175,7 +175,8 @@ ${promptUsuario}`;
       }
     }
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    // Endpoint oficial actualizado en v1
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
     
     const response = await fetch(apiUrl, {
       method: 'POST',
