@@ -3,14 +3,14 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
-// Carga la instrucción de sistema desde un archivo independiente
+// Carga la instrucción de sistema desde el archivo txt independiente
 function cargarSystemInstruction() {
   try {
     const filePath = path.join(__dirname, 'system_instruction.txt');
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     console.error('No se pudo cargar system_instruction.txt, usando predeterminado:', error);
-    return 'Eres Klint, un usuario más de la comunidad de Discord. Habla relaxed y casual.';
+    return 'Eres Klint, un usuario más de la comunidad de Discord. Habla relajado y casual.';
   }
 }
 
@@ -26,7 +26,7 @@ app.listen(PORT, () => {
   console.log(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping con la URL fija de Render para mantenerlo activo
+// Auto-ping a la URL fija de Render para evitar suspensión del servicio gratuito
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -73,54 +73,61 @@ client.once('clientReady', async () => {
     console.error('Error al registrar comandos slash:', error);
   }
 
-  // Iniciar rotación autónoma de presencia
-  actualizarEstadoAutonomo();
+  // Establecer primer estado dinámico al iniciar y programar cambios espontáneos
+  await actualizarEstadoIA();
   programarSiguienteCambioEstado();
 });
 
-// Banco local de estados casuales para no agotar la cuota
-const ACTIVIDADES_CASUALES = [
-  'viendo videos en youtube',
-  'escuchando lofi',
-  'jugando algo casual',
-  'buscando que comer',
-  'scrolleando en reddit',
-  'arreglando un bug raro',
-  'tomando agua',
-  'escuchando un podcast',
-  'pensando si dormir o no',
-  'viendo memes',
-  'probando cosas en discord',
-  'modo chill'
-];
+// Función para consultar a la API REST de Gemini v1
+async function consultarGemini(parts) {
+  const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts }] })
+  });
 
-// Función autónoma para cambiar visibilidad y actividad sin agotar cuotas
-function actualizarEstadoAutonomo() {
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Error ${response.status}: ${JSON.stringify(data)}`);
+  }
+
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+// Generación 100% IA del estado de presencia de Klint sin usar listas fijas
+async function actualizarEstadoIA() {
   try {
+    const promptEstado = 'Genera una frase de estado para Discord de lo que estaría haciendo un usuario casual en su computadora en este momento (máximo 5 palabras). Responde SOLO con el texto del estado, sin comillas, sin formato extra ni explicaciones.';
+    
+    const textoGenerado = await consultarGemini([{ text: promptEstado }]);
+    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'en la compu';
+
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
-    const textoEstado = ACTIVIDADES_CASUALES[Math.floor(Math.random() * ACTIVIDADES_CASUALES.length)];
 
     client.user.setPresence({
       status: estadoAleatorio,
       activities: [{ name: textoEstado, type: ActivityType.Custom }]
     });
-    console.log(`Klint cambió su estado a [${estadoAleatorio}]: ${textoEstado}`);
+    
+    console.log(`Klint cambió autónomamente su estado a [${estadoAleatorio}]: ${textoEstado}`);
   } catch (error) {
-    console.error('Error al actualizar estado autónomo:', error);
+    console.error('Error al generar estado con IA:', error);
   }
 }
 
-// Cambia de estado en intervalos aleatorios entre 15 y 40 minutos
+// Programa el próximo cambio de estado en un tiempo aleatorio (entre 20 y 50 minutos)
 function programarSiguienteCambioEstado() {
-  const minutosAleatorios = Math.floor(Math.random() * (40 - 15 + 1)) + 15;
-  setTimeout(() => {
-    actualizarEstadoAutonomo();
+  const minutosAleatorios = Math.floor(Math.random() * (50 - 20 + 1)) + 20;
+  setTimeout(async () => {
+    await actualizarEstadoIA();
     programarSiguienteCambioEstado();
   }, minutosAleatorios * 60 * 1000);
 }
 
-// Convierte URL de adjuntos a Base64 para Gemini API
+// Convierte URL de adjuntos a formato base64 para análisis visual de Gemini
 async function urlToGenerativePart(url) {
   try {
     const response = await fetch(url);
@@ -139,7 +146,7 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Petición directa a REST API de Gemini v1 con gemini-2.5-flash
+// Procesar mensajes del chat con IA
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -175,31 +182,13 @@ ${promptUsuario}`;
       }
     }
 
-    // Endpoint oficial actualizado en v1
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-    
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: parts }]
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return 'ando con un poco de lag por tantas peticiones jsjs, dame unos segundos y me repito.';
-      }
-      console.error('Error en Gemini API Response:', data);
-      return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
-    }
-
-    const textoGenerado = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    return textoGenerado || 'banco de memoria vacío, no sé qué decir jsjs';
+    const respuesta = await consultarGemini(parts);
+    return respuesta || 'banco de memoria vacío, no sé qué decir jsjs';
   } catch (error) {
-    console.error('Error procesando respuesta IA:', error);
+    console.error('Error en procesarRespuestaIA:', error);
+    if (error.message?.includes('429')) {
+      return 'ando con un poco de lag por tantas peticiones jsjs, dame unos segundos y me repito.';
+    }
     return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
   }
 }
