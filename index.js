@@ -76,7 +76,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Discord Client
+// Client de Discord con TODOS los Intents de Presencia y Miembros habilitados
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -149,7 +149,7 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// REST API para Firebase
+// REST API para Firebase Realtime Database
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) return null;
@@ -164,7 +164,6 @@ async function obtenerMemoriaUsuario(userId) {
   return null;
 }
 
-// Obtener todas las personas/usuarios conocidos guardados en Firebase
 async function obtenerTodosLosUsuariosConocidos() {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) return [];
@@ -194,7 +193,6 @@ async function obtenerTodosLosUsuariosConocidos() {
   return [];
 }
 
-// Guardar o actualizar perfil y memorias de un usuario en Firebase
 async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, resumen) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) return;
@@ -202,7 +200,6 @@ async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, 
   try {
     const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
     
-    // 1. Guarda o actualiza los datos básicos de la persona
     await fetch(`${cleanUrl}usuarios/${userId}/perfil.json`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -213,7 +210,6 @@ async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, 
       })
     });
 
-    // 2. Si hay algo nuevo que recordar, lo agrega a sus memorias
     if (resumen) {
       await fetch(`${cleanUrl}usuarios/${userId}/memorias.json`, {
         method: 'POST',
@@ -249,7 +245,7 @@ Si SÍ contiene datos importantes, responde con un resumen corto de una línea d
   }
 }
 
-// Generación de estado autónomo impredecible
+// Generación autónoma de estado impredecible
 async function actualizarEstadoIA() {
   try {
     const promptEstado = 'Escribe un estado super corto para Discord (máximo 4 palabras) de algo casual. Solo el texto sin comillas.';
@@ -292,35 +288,67 @@ async function urlToGenerativePart(url) {
   }
 }
 
-function obtenerEstadoPersonalizadoUsuario(member) {
-  if (!member || !member.presence) return 'Sin estado';
-  const customStatusActivity = member.presence.activities.find(a => a.type === ActivityType.Custom || a.type === 4);
-  if (customStatusActivity) {
-    const textoEstado = customStatusActivity.state || customStatusActivity.name || '';
-    const emojiEstado = customStatusActivity.emoji ? `${customStatusActivity.emoji.name} ` : '';
-    return `${emojiEstado}${textoEstado}`.trim() || 'Sin estado';
+// Extrae con detalle el ESTADO PERSONALIZADO (Perfil) y la ACTIVIDAD EN JUEGO/APP de un usuario
+function obtenerDetallesPresenciaCompleta(member) {
+  if (!member || !member.presence) return { customStatus: 'Sin estado personalizado', actividad: 'Ninguna' };
+
+  const pres = member.presence;
+  let customStatus = 'Sin estado personalizado';
+  let actividadesList = [];
+
+  if (pres.activities && pres.activities.length > 0) {
+    pres.activities.forEach(act => {
+      if (act.type === ActivityType.Custom || act.type === 4) {
+        const texto = act.state || act.name || '';
+        const emoji = act.emoji ? `${act.emoji.name} ` : '';
+        customStatus = `${emoji}${texto}`.trim() || 'Sin estado personalizado';
+      } else if (act.type === ActivityType.Playing) {
+        actividadesList.push(`Jugando a ${act.name}`);
+      } else if (act.type === ActivityType.Listening) {
+        actividadesList.push(`Escuchando ${act.name}`);
+      } else if (act.type === ActivityType.Streaming) {
+        actividadesList.push(`Transmitiendo ${act.name}`);
+      } else if (act.type === ActivityType.Watching) {
+        actividadesList.push(`Viendo ${act.name}`);
+      }
+    });
   }
-  return 'Sin estado';
+
+  return {
+    customStatus,
+    actividad: actividadesList.length > 0 ? actividadesList.join(' | ') : 'Ninguna'
+  };
 }
 
-// Procesar respuesta con conocimiento global de personas de la comunidad
+// Procesar respuesta con soporte completo para Stickers, Presencia y Miembros
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     
-    // 1. Cargar historial reciente
+    // 1. Obtener historial reciente
     const mensajesPrevios = await canal.messages.fetch({ limit: 6 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuarioNombre = m.author.username;
       const usuarioId = m.author.id;
-      const contenido = m.content;
-      let estadoPersonalizado = 'Sin estado';
-      if (m.member) estadoPersonalizado = obtenerEstadoPersonalizadoUsuario(m.member);
+      const esBot = m.author.bot ? '[BOT]' : '[USUARIO]';
+      let contenido = m.content;
+
+      // Detección de STICKERS de Discord
+      if (m.stickers && m.stickers.size > 0) {
+        const nombresStickers = m.stickers.map(s => `[Sticker enviado: "${s.name}"]`).join(' ');
+        contenido = `${contenido} ${nombresStickers}`.trim();
+      }
+
+      // Extracción de datos de perfil y actividad
+      let presenciaInfo = { customStatus: 'Sin estado', actividad: 'Ninguna' };
+      if (m.member) {
+        presenciaInfo = obtenerDetallesPresenciaCompleta(m.member);
+      }
       
-      return `[ID: ${usuarioId}] ${usuarioNombre} (Etiqueta: <@${usuarioId}>) [Estado: "${estadoPersonalizado}"]: ${contenido}`;
+      return `${esBot} [ID: ${usuarioId}] ${usuarioNombre} (Etiqueta: <@${usuarioId}>) [Estado de Perfil: "${presenciaInfo.customStatus}"] [Actividad Actual: "${presenciaInfo.actividad}"]: ${contenido}`;
     }).join('\n');
 
-    // 2. Cargar memorias específicas de quien escribe
+    // 2. Cargar memorias específicas del usuario que escribe
     let contextoMemoriaAutor = '';
     if (usuarioAutor) {
       const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
@@ -331,10 +359,10 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       }
     }
 
-    // 3. Cargar directorio global de conocidos de la comunidad (para reconocer cuando mencionan a otros)
+    // 3. Cargar directorio global de conocidos
     const personasConocidas = await obtenerTodosLosUsuariosConocidos();
     const listaConocidosTexto = personasConocidas.length > 0
-      ? `\nPERSONAS CONOCIDAS EN LA COMUNIDAD (Si te preguntan o mencionan a alguien, usa esta lista):\n${personasConocidas.join('\n')}\n`
+      ? `\nPERSONAS CONOCIDAS EN LA COMUNIDAD (Usa esta lista si preguntan por alguien):\n${personasConocidas.join('\n')}\n`
       : '';
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO EN SERVIDOR';
@@ -342,10 +370,11 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-INSTRUCCIÓN DE MENCIONES: Si vas a nombrar o etiquetar a un usuario conocido de la comunidad, usa su código exacto de etiqueta <@ID_DEL_USUARIO>.
+INSTRUCCIÓN DE STICKERS: Si en el historial ves que enviaron un [Sticker enviado: "..."], reacciona a él o coméntalo si tiene sentido en la charla.
+INSTRUCCIÓN DE MENCIONES: Usa <@ID_DEL_USUARIO> cuando etiquetes a alguien.
 ${contextoMemoriaAutor}
 ${listaConocidosTexto}
-HISTORIAL RECIENTE DEL CHAT:
+HISTORIAL RECIENTE Y DETALLADO DEL CHAT:
 ${historialFormateado}
 
 MENSAJE ACTUAL DE RESPUESTA A ATENDER (Enviado por ${usuarioAutor?.username || 'Usuario'}):
@@ -364,7 +393,6 @@ ${promptUsuario}`;
 
     const respuesta = await consultarGemini(parts, 120);
 
-    // Guardar o actualizar información en segundo plano
     if (usuarioAutor) {
       evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
     }
@@ -405,6 +433,7 @@ client.on('messageCreate', async message => {
   const fueMencionadoDirectamente = message.mentions.has(client.user.id);
   const contieneNombre = patronNombres.test(textoLower);
   const tieneAdjuntos = message.attachments.size > 0;
+  const tieneStickers = message.stickers.size > 0;
 
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
@@ -418,7 +447,7 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  if (esDM || fueMencionadoDirectamente || contieneNombre || (tieneAdjuntos && contieneNombre)) {
+  if (esDM || fueMencionadoDirectamente || contieneNombre || (tieneAdjuntos && contieneNombre) || (tieneStickers && contieneNombre)) {
     await message.channel.sendTyping();
     
     const adjuntosArray = Array.from(message.attachments.values());
@@ -426,10 +455,6 @@ client.on('messageCreate', async message => {
     
     const textoLimpio = respuesta.length > 2000 ? respuesta.slice(0, 1995) + '...' : respuesta;
 
-    // Regla de Respuesta:
-    // Si es DM -> Envía mensaje directo (sin citar/reply)
-    // Si hay POCOS mensajes recientes (3 o menos) -> Envía mensaje limpio al canal (sin citar/reply)
-    // Si hay MUCHOS mensajes recientes (más de 3) -> Hace reply para que no se pierda en el chat
     if (esDM || conteoMensajes <= 3) {
       await message.channel.send(textoLimpio);
     } else {
