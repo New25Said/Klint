@@ -168,27 +168,48 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Todos los modelos de Gemini fallaron. Último error: ${ultimoError}`);
 }
 
-// Búsqueda de GIF con reporte de errores
+// Búsqueda de GIF con múltiples fallbacks (Tenor + Giphy) y reporte de errores
 async function buscarGifReal(busqueda) {
+  const termino = busqueda || 'funny meme';
+  
+  // Intento 1: API de Tenor (Google)
   try {
-    const query = encodeURIComponent(busqueda || 'funny meme');
-    const url = `https://api.giphy.com/v1/gifs/search?api_key=3o6Zt0yY7n13364f7c&q=${query}&limit=10&rating=g`;
-    const res = await fetch(url);
+    const urlTenor = `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=8`;
+    const res = await fetch(urlTenor);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        const itemRandom = data.results[Math.floor(Math.random() * data.results.length)];
+        const gifUrl = itemRandom.media_formats?.gif?.url || itemRandom.url;
+        if (gifUrl) return gifUrl;
+      }
+    } else {
+      logEvent(`Tenor API devolvió HTTP ${res.status}`, true);
+    }
+  } catch (err) {
+    logEvent(`Error al consultar Tenor API: ${err.message}`, true);
+  }
+
+  // Intento 2: API de Giphy (Beta Key)
+  try {
+    const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=GlV1GwO535PGE2GLdQ389B3A2C42Bch1&q=${encodeURIComponent(termino)}&limit=8&rating=g`;
+    const res = await fetch(urlGiphy);
     if (res.ok) {
       const data = await res.json();
       if (data.data && data.data.length > 0) {
         const itemRandom = data.data[Math.floor(Math.random() * data.data.length)];
         return itemRandom.images.original.url;
-      } else {
-        logEvent(`Búsqueda de GIF sin resultados para el término: "${busqueda}"`, true);
       }
     } else {
-      logEvent(`API de Giphy devolvió status HTTP ${res.status}`, true);
+      logEvent(`Giphy API devolvió HTTP ${res.status}`, true);
     }
   } catch (err) {
-    logEvent(`Error crítico buscando GIF en Giphy: ${err.message}`, true);
+    logEvent(`Error al consultar Giphy API: ${err.message}`, true);
   }
-  return null;
+
+  // Fallback 3: Generación de enlace directo a Tenor Embed
+  logEvent(`Se utilizó fallback URL directo para el GIF: "${termino}"`);
+  return `https://tenor.com/search/${encodeURIComponent(termino)}-gifs`;
 }
 
 // Generador de Memes en Imagen Real
