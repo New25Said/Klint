@@ -149,34 +149,47 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Búsqueda de GIF real en Tenor
-async function buscarGifRealTenor(busqueda) {
+// Búsqueda de GIF usando la API pública e infalible de Giphy
+async function buscarGifReal(busqueda) {
   try {
-    const apiKey = 'LIVDSRZULELA';
-    const url = `https://g.tenor.com/v1/search?q=${encodeURIComponent(busqueda)}&key=${apiKey}&limit=5`;
+    const query = encodeURIComponent(busqueda || 'funny meme');
+    const url = `https://api.giphy.com/v1/gifs/search?api_key=3o6Zt0yY7n13364f7c&q=${query}&limit=10&rating=g`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      if (data.results && data.results.length > 0) {
-        const itemRandom = data.results[Math.floor(Math.random() * data.results.length)];
-        return itemRandom.itemurl || itemRandom.url;
+      if (data.data && data.data.length > 0) {
+        const itemRandom = data.data[Math.floor(Math.random() * data.data.length)];
+        return itemRandom.images.original.url;
       }
     }
   } catch (err) {
-    logEvent(`Error buscando GIF en Tenor: ${err.message}`);
+    logEvent(`Error buscando GIF: ${err.message}`);
   }
   return null;
 }
 
-// Generador de Memes en Imagen Real
+// Generador de Memes con plantillas con imagen real verificadas
 function generarUrlMemeImagen(textoMeme) {
-  const plantillas = ['doge', 'drake', 'catmeme', 'pigeon', 'grim', 'cryingwillis'];
+  const plantillas = ['doge', 'drake', 'fry', 'buzz', 'fine', 'distracted', 'spenser'];
   const plantillaRandom = plantillas[Math.floor(Math.random() * plantillas.length)];
-  const textoLimpio = encodeURIComponent(textoMeme.replace(/\s+/g, '_').toLowerCase() || 'meme_casual');
-  return `https://api.memegen.link/images/${plantillaRandom}/_/${textoLimpio}.png`;
+  
+  // Si el texto tiene un guion o barra para dividir arriba y abajo
+  let textoArriba = '_';
+  let textoAbajo = textoMeme;
+
+  if (textoMeme.includes('|')) {
+    const partes = textoMeme.split('|');
+    textoArriba = partes[0].trim();
+    textoAbajo = partes[1].trim();
+  }
+
+  const cleanArriba = encodeURIComponent(textoArriba.replace(/\s+/g, '_').toLowerCase());
+  const cleanAbajo = encodeURIComponent(textoAbajo.replace(/\s+/g, '_').toLowerCase() || 'cuando_pasa_xd');
+
+  return `https://api.memegen.link/images/${plantillaRandom}/${cleanArriba}/${cleanAbajo}.png`;
 }
 
-// Generador nativo e infalible de Audios sintetizados en MP3 con voz
+// Generador nativo de Audios sintetizados en MP3
 function obtenerUrlAudioVozNativo(texto) {
   try {
     const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#]/g, '').slice(0, 150).trim();
@@ -282,7 +295,7 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// ESTADO PERSONALIZADO ÚNICO Y TRADICIONAL
+// ESTADO PERSONALIZADO ÚNICO
 async function actualizarEstadoIA(peticionManual = null) {
   try {
     let promptEstado = 'Inventa un estado de perfil de Discord informal y espontáneo (máximo 5 palabras). Todo en minúsculas, casual, sin puntos ni comillas.';
@@ -435,17 +448,17 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
-    const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
-    const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
+    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
+    const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen|meme)\b/i.test(promptUsuario);
     const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
 
     let instruccionExtra = '';
     if (pideAudio) {
-      instruccionExtra = "\nREGLA DE AUDIO OBLIGATORIA: El usuario pidió responder en AUDIO. Escribe ÚNICAMENTE la frase corta que vas a decir en el audio. No digas 'aquí va' ni prometas nada, solo escribe el texto a hablar.";
+      instruccionExtra = "\nREGLA DE AUDIO: Responde ÚNICAMENTE la frase corta que vas a decir en voz alta.";
     } else if (pideMemeImagen) {
-      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: El usuario te pidió un meme en imagen. Agrega al final [GENERAR_MEME: texto_del_meme].";
+      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea una frase graciosa dividida en dos por una barra (Texto Arriba | Texto Abajo). Agrega al final [GENERAR_MEME: texto arriba | texto abajo]. Ejemplo: [GENERAR_MEME: cuando le pides un meme | y te manda a volar].";
     } else if (pideGifExplicitamente) {
-      instruccionExtra = "\nREGLA DE GIF: El usuario te pidió un GIF. Agrega al final [BUSCAR_GIF: tema_del_gif].";
+      instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. Ejemplo: [BUSCAR_GIF: cat laughing].";
     }
 
     const promptText = `${systemInstruction}
@@ -486,21 +499,19 @@ ${promptUsuario}`;
       audioUrlGenerado = obtenerUrlAudioVozNativo(respuesta);
     } else if (pideMemeImagen || respuesta.includes('[GENERAR_MEME:')) {
       const matchMeme = respuesta.match(/\[GENERAR_MEME:\s*([^\]]+)\]/i);
-      const textoMeme = matchMeme ? matchMeme[1] : 'cuando pasa xd';
+      const textoMeme = matchMeme ? matchMeme[1] : 'cuando pasa | xd';
       respuesta = respuesta.replace(/\[GENERAR_MEME:\s*([^\]]+)\]/i, '').trim();
       memeImagenUrl = generarUrlMemeImagen(textoMeme);
     } else {
       if (pideGifExplicitamente && !respuesta.includes('[BUSCAR_GIF:')) {
-        const palabras = promptUsuario.replace(/manda|pasa|envia|un|gif|meme|klint|clin/gi, '').trim();
-        const busquedaAuto = palabras.length > 2 ? palabras : 'random meme';
-        respuesta += ` [BUSCAR_GIF: ${busquedaAuto}]`;
+        respuesta += ` [BUSCAR_GIF: funny meme]`;
       }
 
       const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
       if (matchGif) {
         const terminoBusqueda = matchGif[1].trim();
         respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
-        gifUrlEncontrada = await buscarGifRealTenor(terminoBusqueda);
+        gifUrlEncontrada = await buscarGifReal(terminoBusqueda);
       }
     }
 
