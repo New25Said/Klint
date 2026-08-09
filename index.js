@@ -246,7 +246,7 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
 // Generación de estado impredecible y libre por la IA
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    let promptEstado = 'Inventa un estado de Discord totalmente libre, divertido o aleatorio que pondría un usuario en su perfil (máximo 5 palabras). Responde ÚNICAMENTE con el texto, en minúsculas y sin comillas.';
+    let promptEstado = 'Inventa un estado de Discord totalmente libre, aleatorio que pondría un usuario en su perfil (máximo 5-6 palabras). Responde ÚNICAMENTE con el texto, ponle la ortagrafia que quieras como si fueras un humano';
     if (peticionManual) {
       promptEstado = `Genera un estado libre para Discord basado en esto: ${peticionManual}. Máximo 5 palabras, solo texto.`;
     }
