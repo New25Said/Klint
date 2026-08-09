@@ -149,10 +149,10 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// BÚSQUEDA DE GIFS REALES EN TENOR API
+// Búsqueda de GIF real en Tenor
 async function buscarGifRealTenor(busqueda) {
   try {
-    const apiKey = 'LIVDSRZULELA'; // Key de consulta pública de Tenor API
+    const apiKey = 'LIVDSRZULELA';
     const url = `https://g.tenor.com/v1/search?q=${encodeURIComponent(busqueda)}&key=${apiKey}&limit=5`;
     const res = await fetch(url);
     if (res.ok) {
@@ -168,7 +168,7 @@ async function buscarGifRealTenor(busqueda) {
   return null;
 }
 
-// REST API para Firebase Realtime Database
+// REST API para Firebase
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) return null;
@@ -309,11 +309,9 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Extracción en vivo y forzada de miembros y estados de perfil
 async function obtenerDetallesIntegrantesServidor(guild) {
   if (!guild) return 'Entorno DM (Sin lista de servidor)';
   try {
-    // Forzamos la descarga de la lista completa de miembros desde los servidores de Discord
     const miembros = await guild.members.fetch();
     const resumenMiembros = [];
 
@@ -336,9 +334,8 @@ async function obtenerDetallesIntegrantesServidor(guild) {
       resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}, Tag: <@${m.id}>) ${esBot} [Estado Perfil: "${estadoTexto}"${actividadTexto}]`);
     });
 
-    return resumenMiembros.slice(0, 25).join('\n'); // Retorna hasta 25 miembros activos
+    return resumenMiembros.slice(0, 25).join('\n');
   } catch (err) {
-    logEvent(`Error descargando miembros del servidor: ${err.message}`);
     return 'No se pudo sincronizar la lista de miembros';
   }
 }
@@ -347,11 +344,8 @@ async function obtenerDetallesIntegrantesServidor(guild) {
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
-    
-    // 1. Cargar la lista completa de miembros y sus estados de perfil en vivo
     const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
 
-    // 2. Historial en formato limpio
     const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuarioNombre = m.author.username;
@@ -366,7 +360,6 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       return `${usuarioNombre} (<@${usuarioId}>): ${contenido}`;
     }).join('\n');
 
-    // 3. Memorias del autor
     let contextoMemoriaAutor = '';
     if (usuarioAutor) {
       const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
@@ -379,13 +372,19 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
+    // Detección directa si el usuario pidió un GIF explícitamente
+    const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
+    const instruccionGifForzada = pideGifExplicitamente 
+      ? "\nREGLA OBLIGATORIA AHORA: El usuario te pidió un GIF/meme. DEBES incluir al final de tu respuesta la etiqueta [BUSCAR_GIF: tema_del_gif]. No te niegues a mandarlo."
+      : "\nINSTRUCCIÓN GIFS: Si te piden un GIF o si quieres acompañar tu frase con un meme, agrega al final [BUSCAR_GIF: tema].";
+
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-INSTRUCCIÓN GIFS: Si te piden enviar un GIF o si sientes ganas de enviar un meme/gif, agrega exactamente este comando al final de tu texto: [BUSCAR_GIF: término_de_búsqueda]. Ejemplo: "jaja ya fue [BUSCAR_GIF: gato riendo]".
+${instruccionGifForzada}
 ${contextoMemoriaAutor}
 
-LISTA REAL Y EN VIVO DE MIEMBROS Y ESTADOS DE PERFIL DE ESTE SERVIDOR:
+LISTA DE MIEMBROS Y ESTADOS DE ESTE SERVIDOR:
 ${miembrosServidorTexto}
 
 HISTORIAL DEL CHAT:
@@ -407,7 +406,14 @@ ${promptUsuario}`;
 
     let respuesta = await consultarGemini(parts, 120);
 
-    // Procesar envío de GIF real si la IA incluyó la instrucción [BUSCAR_GIF: ...]
+    // Si el usuario pidió GIF y la IA se olvidó de poner la etiqueta, la agregamos automáticamente
+    if (pideGifExplicitamente && !respuesta.includes('[BUSCAR_GIF:')) {
+      const palabras = promptUsuario.replace(/manda|pasa|envia|un|gif|meme|klint|clin/gi, '').trim();
+      const busquedaAuto = palabras.length > 2 ? palabras : 'random meme';
+      respuesta += ` [BUSCAR_GIF: ${busquedaAuto}]`;
+    }
+
+    // Procesar GIF real en Tenor
     let gifUrlEncontrada = null;
     const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
     if (matchGif) {
