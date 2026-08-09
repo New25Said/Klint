@@ -30,6 +30,19 @@ const featureToggles = {
 process.on('unhandledRejection', (reason) => logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true));
 process.on('uncaughtException', (err) => logEvent(`Excepción no capturada: ${err.stack || err.message}`, true));
 
+// Instanciación temprana del Cliente Discord
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages
+  ],
+  partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
+});
+
 // Cargar system_instruction.txt
 function cargarSystemInstruction() {
   try {
@@ -47,7 +60,7 @@ function obtenerFirebaseUrl() {
   if (matchMarkdown) url = matchMarkdown[1];
   url = url.replace(/[\[\]()'"]/g, '').trim();
   if (url && !url.startsWith('http')) url = `https://${url}`;
-  return url.replace(/\/+$/, '');
+  return url.replace(/\/+$/, ''); // Elimina diagonales al final para evitar dobles slashes
 }
 
 // Servidor Express
@@ -65,7 +78,11 @@ function validarKey(req, res, next) {
 }
 
 app.post('/api/login', validarKey, (req, res) => res.json({ success: true }));
-app.post('/api/stats', validarKey, (req, res) => res.json({ guilds: client.guilds.cache.size, ping: client.ws?.ping || 0, toggles: featureToggles }));
+app.post('/api/stats', validarKey, (req, res) => {
+  const guildsCount = client.isReady() ? client.guilds.cache.size : 0;
+  const pingMs = client.isReady() ? client.ws.ping : 0;
+  res.json({ guilds: guildsCount, ping: pingMs, toggles: featureToggles });
+});
 app.post('/api/get-prompt', validarKey, (req, res) => res.json({ prompt: cargarSystemInstruction() }));
 app.post('/api/save-prompt', validarKey, (req, res) => {
   try {
@@ -204,19 +221,6 @@ setInterval(() => {
     .catch((err) => logEvent(`Fallo en self-ping: ${err.message}`, true));
 }, 10 * 60 * 1000);
 
-// Client de Discord
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildPresences,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages
-  ],
-  partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
-});
-
 const commands = [
   new SlashCommandBuilder()
     .setName('klint')
@@ -265,11 +269,11 @@ async function buscarOfertasJuegos() {
   return 'No encontré ofertas en este momento mano xd';
 }
 
-// Modelos Gemini
+// Modelos Gemini Válidos
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent'
 ];
 
 async function consultarGemini(parts, maxTokens = 120) {
@@ -297,27 +301,28 @@ async function consultarGemini(parts, maxTokens = 120) {
     }
   }
 
-  throw new Error(`Error en API Gemini: ${ultimoError}`);
+  throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Búsqueda de GIFs con soporte GIPHY API (y fallback a Tenor)
+// Búsqueda de GIFs con GIPHY API Key de Render (con fallback a Tenor)
 async function buscarGifsReales(busqueda, cantidad = 1) {
   if (!featureToggles.gifs) return [];
   const limiteMax = Math.min(Math.max(cantidad, 1), 2);
   const termino = busqueda || 'funny meme';
   const urlsEncontradas = [];
 
-  // 1. Intentar consulta con Giphy API
-  if (process.env.GIPHY_API_KEY) {
+  // Intento con GIPHY (Prioridad usando GIPHY_API_KEY)
+  const giphyKey = process.env.GIPHY_API_KEY;
+  if (giphyKey) {
     try {
-      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${process.env.GIPHY_API_KEY}&q=${encodeURIComponent(termino)}&limit=10&rating=g`;
-      const res = await fetch(urlGiphy);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.data && data.data.length > 0) {
-          for (let i = 0; i < limiteMax && i < data.data.length; i++) {
-            const gifDirecto = data.data[i].images?.original?.url || data.data[i].images?.downsized?.url;
-            if (gifDirecto) urlsEncontradas.push(gifDirecto);
+      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${giphyKey}&q=${encodeURIComponent(termino)}&limit=10&rating=g`;
+      const resGiphy = await fetch(urlGiphy);
+      if (resGiphy.ok) {
+        const dataGiphy = await resGiphy.json();
+        if (dataGiphy.data && dataGiphy.data.length > 0) {
+          for (let i = 0; i < limiteMax && i < dataGiphy.data.length; i++) {
+            const gifUrl = dataGiphy.data[i].images?.original?.url || dataGiphy.data[i].images?.downsized_medium?.url;
+            if (gifUrl) urlsEncontradas.push(gifUrl);
           }
           if (urlsEncontradas.length > 0) return urlsEncontradas;
         }
@@ -327,7 +332,7 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
     }
   }
 
-  // 2. Fallback a Tenor API
+  // Fallback con Tenor API
   try {
     const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=10`;
     const res = await fetch(urlTenor);
@@ -345,10 +350,10 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
     logEvent(`Error al consultar Tenor API: ${err.message}`, true);
   }
 
-  return ['https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3Z2eDF6aXN3NDZpdmdybDR3cnF0YThrbWV4ZXBicnd3cnJ6ZXpzZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/cat-cat-typing/giphy.gif'];
+  return ['https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdWZ4OHl0ZG9zcHNmd3NwcjExMjl2MmVlZnVpM2VydjBjcmsxMG90ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7abKhOpu0NwenH3O/giphy.gif'];
 }
 
-// Generador de Memes en Imagen Real
+// Generador de Memes en Imagen Real (Memegen.link spec)
 function generarUrlMemeImagen(textoMeme) {
   if (!featureToggles.memes) return null;
   try {
@@ -364,8 +369,19 @@ function generarUrlMemeImagen(textoMeme) {
       textoAbajo = partes[1].trim();
     }
 
-    const cleanArriba = encodeURIComponent(textoArriba.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_') || 'cuando');
-    const cleanAbajo = encodeURIComponent(textoAbajo.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_') || 'pasa_xd');
+    const sanearTexto = (t) => {
+      return encodeURIComponent(
+        t.replace(/\?/g, '~q')
+         .replace(/%/g, '~p')
+         .replace(/#/g, '~h')
+         .replace(/\//g, '~s')
+         .replace(/"/g, "''")
+         .replace(/\s+/g, '-')
+      ) || '_';
+    };
+
+    const cleanArriba = sanearTexto(textoArriba);
+    const cleanAbajo = sanearTexto(textoAbajo);
 
     return `https://api.memegen.link/images/${plantillaRandom}/${cleanArriba}/${cleanAbajo}.png`;
   } catch (err) {
@@ -390,7 +406,7 @@ function obtenerUrlAudioVozNativo(texto) {
 // REST API para Firebase
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
-  if (!dbUrl || !dbUrl.startsWith('http')) return null;
+  if (!dbUrl) return null;
 
   try {
     const res = await fetch(`${dbUrl}/usuarios/${userId}.json`);
@@ -403,7 +419,7 @@ async function obtenerMemoriaUsuario(userId) {
 
 async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, resumen) {
   const dbUrl = obtenerFirebaseUrl();
-  if (!dbUrl || !dbUrl.startsWith('http')) return;
+  if (!dbUrl) return;
 
   try {
     await fetch(`${dbUrl}/usuarios/${userId}/perfil.json`, {
@@ -434,10 +450,8 @@ async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, 
 }
 
 async function evaluarYGuardarMemoria(user, mensajeUsuario) {
-  if (!user || !user.id) return;
   try {
-    const usernameStr = user.username || 'Usuario';
-    const promptEvaluacion = `Analiza si este mensaje de ${usernameStr} contiene un dato personal clave, secreto o gusto a recordar a futuro: "${mensajeUsuario}".
+    const promptEvaluacion = `Analiza si este mensaje de ${user.username} contiene un dato personal clave, secreto o gusto a recordar a futuro: "${mensajeUsuario}".
 Si NO es importante responde: NO.
 Si SÍ es importante, responde un resumen super corto de una frase.`;
 
@@ -445,7 +459,7 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
     const textoRespuesta = resultado.trim();
 
     const resumenParaGuardar = (!textoRespuesta || textoRespuesta.toUpperCase().startsWith('NO')) ? null : textoRespuesta;
-    await actualizarPerfilYMemoria(user.id, usernameStr, user.displayName || usernameStr, mensajeUsuario, resumenParaGuardar);
+    await actualizarPerfilYMemoria(user.id, user.username, user.displayName || user.username, mensajeUsuario, resumenParaGuardar);
   } catch (err) {
     logEvent(`Error evaluando memoria: ${err.message}`, true);
   }
@@ -465,13 +479,15 @@ async function actualizarEstadoIA(peticionManual = null) {
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
 
-    client.user.setPresence({
-      status: estadoAleatorio,
-      activities: [{
-        name: textoEstado,
-        type: ActivityType.Custom
-      }]
-    });
+    if (client.user) {
+      client.user.setPresence({
+        status: estadoAleatorio,
+        activities: [{
+          name: textoEstado,
+          type: ActivityType.Custom
+        }]
+      });
+    }
     logEvent(`Estado Personalizado actualizado: "${textoEstado}" (${estadoAleatorio})`);
   } catch (error) {
     logEvent(`Error actualizando presencia: ${error.message}`, true);
@@ -507,7 +523,7 @@ async function obtenerPresenciaCualquierEntorno(user, guild = null) {
 
   if (guild) {
     try { member = await guild.members.fetch(user.id); } catch (e) {}
-  } else {
+  } else if (client.isReady()) {
     for (const g of client.guilds.cache.values()) {
       try {
         member = await g.members.fetch(user.id);
@@ -661,9 +677,7 @@ ${promptUsuario}`;
 
     if (pideAudio) {
       audioUrlGenerado = obtenerUrlAudioVozNativo(respuesta);
-    }
-
-    if (pideMemeImagen || respuesta.includes('[GENERAR_MEME:')) {
+    } else if (pideMemeImagen || respuesta.includes('[GENERAR_MEME:')) {
       const matchMeme = respuesta.match(/\[GENERAR_MEME:\s*([^\]]+)\]/i);
       const textoMeme = matchMeme ? matchMeme[1] : 'cuando pasa | xd';
       respuesta = respuesta.replace(/\[GENERAR_MEME:\s*([^\]]+)\]/i, '').trim();
@@ -672,8 +686,8 @@ ${promptUsuario}`;
 
     const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
     if (matchGif || pideGifExplicitamente) {
-      const terminoBusqueda = matchGif ? matchGif[1].trim() : 'funny meme';
-      respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
+      let terminoBusqueda = matchGif ? matchGif[1].trim() : promptUsuario.replace(/\b(manda|pasa|envia|un|gif|gifs|de)\b/gi, '').trim();
+      if (!terminoBusqueda) terminoBusqueda = 'funny meme';
       
       const cantidadPedida = /\b(dos|2|un par)\b/i.test(promptUsuario) ? 2 : 1;
       gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda, cantidadPedida);
@@ -694,6 +708,40 @@ ${promptUsuario}`;
     logEvent(`Error en procesarRespuestaIA: ${error.message}`, true);
     return { respuesta: 'me dio un lag xd', gifsUrls: [], memeImagenUrl: null, audioUrl: null, conteoMensajes: 0 };
   }
+}
+
+// Helper para construir tablero del Tres en Raya
+function construirTableroTicTacToe(tablero) {
+  const rows = [];
+  for (let i = 0; i < 3; i++) {
+    const row = new ActionRowBuilder();
+    for (let j = 0; j < 3; j++) {
+      const idx = i * 3 + j;
+      const valor = tablero[idx];
+      const btn = new ButtonBuilder()
+        .setCustomId(`tictactoe_${i}_${j}`)
+        .setLabel(valor === '-' ? ' ' : valor)
+        .setStyle(valor === '❌' ? ButtonStyle.Danger : valor === '⭕' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+        .setDisabled(valor !== '-');
+      row.addComponents(btn);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function verificarGanadorTicTacToe(board) {
+  const lineas = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8],
+    [0, 3, 6], [1, 4, 7], [2, 5, 8],
+    [0, 4, 8], [2, 4, 6]
+  ];
+  for (const [a, b, c] of lineas) {
+    if (board[a] !== '-' && board[a] === board[b] && board[a] === board[c]) {
+      return board[a];
+    }
+  }
+  return board.includes('-') ? null : 'EMPATE';
 }
 
 // Slash Commands e Interacciones
@@ -736,7 +784,8 @@ client.on('interactionCreate', async interaction => {
       const memeUrl = generarUrlMemeImagen(memeTexto);
       const gifsUrls = await buscarGifsReales('cool robot', 1);
 
-      const archivosAdjuntos = [new AttachmentBuilder(memeUrl, { name: 'status_meme.png' })];
+      const archivosAdjuntos = [];
+      if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
 
       const mensajeStatus = `🤖 **FICHA TÉCNICA DE KLINT - ESTADO ACTUAL**
 👤 **Usuario:** ${username} (Apodo: ${nick})
@@ -764,80 +813,57 @@ ${gifsUrls.join('\n')}`;
     }
 
     if (interaction.commandName === 'juego') {
-      const rows = [];
-      for (let i = 0; i < 3; i++) {
-        const row = new ActionRowBuilder();
-        for (let j = 0; j < 3; j++) {
-          row.addComponents(
-            new ButtonBuilder().setCustomId(`tictactoe_${i}_${j}`).setLabel('-').setStyle(ButtonStyle.Secondary)
-          );
-        }
-        rows.push(row);
-      }
-      await interaction.reply({ content: '❌ **TRES EN RAYA DE KLINT** - ¡Haz tu primer movimiento!', components: rows });
+      const tableroInicial = Array(9).fill('-');
+      const rows = construirTableroTicTacToe(tableroInicial);
+      await interaction.reply({ content: '❌ **TRES EN RAYA DE KLINT** - Haz tu primer movimiento:', components: rows });
     }
   }
 
-  // Manejo interactivo de botones de minijuegos (Tres en Raya)
+  // Manejo interactivo de botones para Tres en Raya
   if (interaction.isButton() && interaction.customId.startsWith('tictactoe_')) {
-    try {
-      const parts = interaction.customId.split('_');
-      const rowIdx = parseInt(parts[1]);
-      const colIdx = parseInt(parts[2]);
+    const message = interaction.message;
+    const parts = interaction.customId.split('_');
+    const r = parseInt(parts[1]);
+    const c = parseInt(parts[2]);
+    const idxClick = r * 3 + c;
 
-      const oldComponents = interaction.message.components;
-      let board = [];
-      
-      for (let r = 0; r < 3; r++) {
-        board[r] = [];
-        for (let c = 0; c < 3; c++) {
-          board[r][c] = oldComponents[r].components[c].label;
-        }
-      }
+    // Extraer estado actual del tablero desde la interfaz de botones
+    let board = [];
+    message.components.forEach(row => {
+      row.components.forEach(btn => {
+        const label = btn.label.trim();
+        if (label === '❌') board.push('❌');
+        else if (label === '⭕') board.push('⭕');
+        else board.push('-');
+      });
+    });
 
-      if (board[rowIdx][colIdx] !== '-') {
-        return interaction.reply({ content: 'Esa casilla ya está ocupada mano xd', ephemeral: true });
-      }
-
-      // Jugador marca X
-      board[rowIdx][colIdx] = 'X';
-
-      // Klint responde marcando O
-      let emptySpots = [];
-      for (let r = 0; r < 3; r++) {
-        for (let c = 0; c < 3; c++) {
-          if (board[r][c] === '-') emptySpots.push({ r, c });
-        }
-      }
-
-      let klintJugos = false;
-      if (emptySpots.length > 0) {
-        const spot = emptySpots[Math.floor(Math.random() * emptySpots.length)];
-        board[spot.r][spot.c] = 'O';
-        klintJugos = true;
-      }
-
-      // Renderizar el nuevo tablero con botones actualizados
-      const newRows = [];
-      for (let r = 0; r < 3; r++) {
-        const row = new ActionRowBuilder();
-        for (let c = 0; c < 3; c++) {
-          const val = board[r][c];
-          const btn = new ButtonBuilder()
-            .setCustomId(`tictactoe_${r}_${c}`)
-            .setLabel(val)
-            .setStyle(val === 'X' ? ButtonStyle.Primary : (val === 'O' ? ButtonStyle.Danger : ButtonStyle.Secondary))
-            .setDisabled(val !== '-');
-          row.addComponents(btn);
-        }
-        newRows.push(row);
-      }
-
-      const estadoTexto = klintJugos ? '¡Hiciste tu jugada y Klint ya respondió!' : '¡Juego terminado!';
-      await interaction.update({ content: `🎮 **TRES EN RAYA DE KLINT** - ${estadoTexto}`, components: newRows });
-    } catch (err) {
-      logEvent(`Error en interacción de juego: ${err.message}`, true);
+    if (board[idxClick] !== '-') {
+      return interaction.reply({ content: 'Esa casilla ya está ocupada pe mano.', ephemeral: true });
     }
+
+    // Jugada del Usuario
+    board[idxClick] = '❌';
+
+    let ganador = verificarGanadorTicTacToe(board);
+    if (ganador) {
+      const statusText = ganador === '❌' ? '🎉 ¡Me ganaste mano! Bien jugado.' : '🤝 ¡Empate!';
+      return interaction.update({ content: `❌ **TRES EN RAYA DE KLINT** - ${statusText}`, components: construirTableroTicTacToe(board) });
+    }
+
+    // Jugada de Klint (IA / Bot)
+    const casillasLibres = board.map((v, i) => v === '-' ? i : null).filter(v => v !== null);
+    if (casillasLibres.length > 0) {
+      const eleccionKlint = casillasLibres[Math.floor(Math.random() * casillasLibres.length)];
+      board[eleccionKlint] = '⭕';
+    }
+
+    ganador = verificarGanadorTicTacToe(board);
+    let textoResultado = 'Tu turno pe:';
+    if (ganador === '⭕') textoResultado = '🤖 ¡Gané yo xd! Más suerte para la próxima.';
+    else if (ganador === 'EMPATE') textoResultado = '🤝 ¡Empate!';
+
+    await interaction.update({ content: `❌ **TRES EN RAYA DE KLINT** - ${textoResultado}`, components: construirTableroTicTacToe(board) });
   }
 });
 
@@ -896,9 +922,4 @@ client.on('messageCreate', async message => {
   }
 });
 
-// Login seguro
-if (!process.env.DISCORD_TOKEN) {
-  logEvent('Error: DISCORD_TOKEN no está definido en las variables de entorno.', true);
-} else {
-  client.login(process.env.DISCORD_TOKEN).catch(err => logEvent(`Error al iniciar sesión en Discord: ${err.message}`, true));
-}
+client.login(process.env.DISCORD_TOKEN);
