@@ -108,7 +108,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Inicialización de Discord Client con todos los Intents de presencia y miembros
+// Inicialización de Discord Client con intents completos para lectura de presencia/estado
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -183,7 +183,7 @@ async function consultarGeminiMultimodelo(parts) {
   throw new Error(`Todos los modelos fallaron. Último error: ${ultimoError}`);
 }
 
-// Generación de estado autónomo en momentos totalmente impredecibles
+// Generación de estado autónomo para Klint en momentos impredecibles
 async function actualizarEstadoIA(peticionManual = null) {
   try {
     let promptEstado = 'Escribe un texto corto de estado para Discord de lo que estaría haciendo o pensando un usuario informal en su PC en este instante (máximo 5 palabras). Responde ÚNICAMENTE con el texto del estado.';
@@ -208,7 +208,6 @@ async function actualizarEstadoIA(peticionManual = null) {
   }
 }
 
-// Tiempos aleatorios e impredecibles para cambiar presencia
 function programarCambioEstadoRandom() {
   const minutosRandom = Math.floor(Math.random() * (45 - 5 + 1)) + 5;
   setTimeout(async () => {
@@ -217,7 +216,6 @@ function programarCambioEstadoRandom() {
   }, minutosRandom * 60 * 1000);
 }
 
-// Bucle autónomo para iniciar conversación si un chat está inactivo
 function iniciarBucleInactividad() {
   setInterval(async () => {
     try {
@@ -230,10 +228,9 @@ function iniciarBucleInactividad() {
 
         if (ultimoMensaje) {
           const tiempoInactivo = Date.now() - ultimoMensaje.createdTimestamp;
-          // Si han pasado más de 3 horas sin hablar
           if (tiempoInactivo > 3 * 60 * 60 * 1000) {
             await canalTexto.sendTyping();
-            const promptBreaker = `${cargarSystemInstruction()}\nEl chat está muerto hace horas. Di algo totalmente casual, un pensamiento aleatorio o una pregunta libre para romper el silencio.`;
+            const promptBreaker = `${cargarSystemInstruction()}\nEl chat está inactivo hace horas. Lanza un comentario o pensamiento casual e informal de forma totalmente libre para romper el silencio.`;
             const respuesta = await consultarGeminiMultimodelo([{ text: promptBreaker }]);
             if (respuesta) {
               await canalTexto.send(respuesta);
@@ -266,32 +263,22 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Extrae los datos detallados de presencia, actividad y estado personalizado del usuario
-function obtenerDetallesPresencia(member, user) {
-  if (!member || !member.presence) return '[Visibilidad: Desconocida/Offline]';
+// Extrae con precisión el ESTADO PERSONALIZADO (Custom Status) escrito por el usuario
+function obtenerEstadoPersonalizadoUsuario(member) {
+  if (!member || !member.presence) return 'Sin estado personalizado';
 
   const pres = member.presence;
-  const estadoVis = pres.status;
-  const actividadesList = [];
+  // Buscar la actividad de tipo Custom (tipo 4 en Discord API)
+  const customStatusActivity = pres.activities.find(a => a.type === ActivityType.Custom || a.type === 4);
 
-  if (pres.activities && pres.activities.length > 0) {
-    pres.activities.forEach(act => {
-      if (act.type === ActivityType.Custom) {
-        actividadesList.push(`Estado personalizado: "${act.state || act.name}"`);
-      } else if (act.type === ActivityType.Playing) {
-        actividadesList.push(`Jugando: ${act.name}`);
-      } else if (act.type === ActivityType.Listening) {
-        actividadesList.push(`Escuchando: ${act.name}`);
-      } else if (act.type === ActivityType.Streaming) {
-        actividadesList.push(`Stremeando: ${act.name}`);
-      } else {
-        actividadesList.push(`Actividad: ${act.name}`);
-      }
-    });
+  if (customStatusActivity) {
+    // En Discord API, el texto del estado personalizado se almacena en 'state'
+    const textoEstado = customStatusActivity.state || customStatusActivity.name || '';
+    const emojiEstado = customStatusActivity.emoji ? `${customStatusActivity.emoji.name} ` : '';
+    return `${emojiEstado}${textoEstado}`.trim() || 'Sin estado personalizado';
   }
 
-  const actTexto = actividadesList.length > 0 ? ` | ${actividadesList.join(', ')}` : '';
-  return `[Visibilidad: ${estadoVis}${actTexto}]`;
+  return 'Sin estado personalizado';
 }
 
 // Procesar interacción con la IA
@@ -303,20 +290,20 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuario = m.author.username;
       const contenido = m.content;
-      let presenciaInfo = '';
+      let estadoPersonalizado = 'Sin estado personalizado';
 
       if (m.member) {
-        presenciaInfo = obtenerDetallesPresencia(m.member, m.author);
+        estadoPersonalizado = obtenerEstadoPersonalizadoUsuario(m.member);
       }
 
-      return `${usuario}${presenciaInfo}: ${contenido}`;
+      return `${usuario} [Estado Personalizado de Perfil: "${estadoPersonalizado}"]: ${contenido}`;
     }).join('\n');
 
     const tipoEntorno = esDM ? 'MENSAJE PRIVADO DIRECTO (DM)' : 'CHAT PÚBLICO DE SERVIDOR';
     
     let infoAutorDM = '';
     if (esDM && usuarioAutor) {
-      infoAutorDM = `DATOS DEL USUARIO EN DM: ${usuarioAutor.username}`;
+      infoAutorDM = `USUARIO EN DM: ${usuarioAutor.username}`;
     }
 
     const promptText = `${systemInstruction}
@@ -324,7 +311,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 ENTORNO ACTUAL: ${tipoEntorno}
 ${infoAutorDM}
 
-HISTORIAL RECIENTE DE ESTE CHAT:
+HISTORIAL RECIENTE DEL CHAT (con los Estados Personalizados que cada usuario configuró en su perfil de Discord):
 ${historialFormateado}
 
 MENSAJE ACTUAL A ATENDER:
@@ -367,7 +354,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// Manejo de Mensajes Directos, Menciones y Nombres
+// Manejo de Mensajes Directos y Servidores
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
 
@@ -379,11 +366,17 @@ client.on('messageCreate', async message => {
   const contieneNombre = patronNombres.test(textoLower);
   const tieneAdjuntos = message.attachments.size > 0;
 
-  // Permite solicitar cambio de estado directamente en la conversación
+  // Si le piden cambiar su estado directamente en el chat
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
     await actualizarEstadoIA(message.content);
-    await message.reply('listo, ya cambié mi estado.');
+    
+    // Si es DM envía mensaje normal sin linkear/citar el mensaje original
+    if (esDM) {
+      await message.channel.send('listo, ya cambié mi estado.');
+    } else {
+      await message.reply('listo, ya cambié mi estado.');
+    }
     return;
   }
 
@@ -393,7 +386,7 @@ client.on('messageCreate', async message => {
     const adjuntosArray = Array.from(message.attachments.values());
     const respuesta = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author);
     
-    // Si es mensaje en servidor, responde en el hilo/canal de forma limpia; si es DM, envía directo sin linkear
+    // Regla DM: Si es chat privado (DM) envía como mensaje independiente sin citar/reply
     if (respuesta.length > 2000) {
       if (esDM) {
         await message.channel.send(respuesta.slice(0, 1995) + '...');
