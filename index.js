@@ -15,7 +15,7 @@ function cargarSystemInstruction() {
   }
 }
 
-// Servidor Express
+// Servidor Express para servir index.html y mantener Render activo
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -27,7 +27,7 @@ app.listen(PORT, () => {
   console.log(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping a la URL fija de Render
+// Auto-ping con la URL en duro para Render Free Tier (cada 10 minutos)
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -35,9 +35,9 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Inicialización de la API de Gemini
+// Inicialización de la API de Gemini usando el modelo oficial estable
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 // Inicialización del Cliente de Discord
 const client = new Client({
@@ -78,32 +78,71 @@ client.once('clientReady', async () => {
     console.error('Error al registrar comandos slash:', error);
   }
 
+  // Establecer estado inicial y programar cambios autónomos
   actualizarEstadoAutonomo();
-  setInterval(actualizarEstadoAutonomo, 20 * 60 * 1000);
+  // Cambia de estado en intervalos aleatorios entre 15 y 45 minutos
+  programarSiguienteCambioEstado();
 });
 
-// Función autónoma para actualizar presencia
+// Banco extendido de ideas para estados autónomos
+const ACTIVIDADES_CASUALES = [
+  'viendo videos en youtube',
+  'escuchando lofi',
+  'jugando en la laptop',
+  'buscando que comer',
+  'scrolleando en reddit',
+  'arreglando un bug raro',
+  'tomando agua',
+  'escuchando un podcast',
+  'pensando si dormir o no',
+  'viendo memes de código',
+  'probando cosas en discord',
+  'modo chill'
+];
+
+// Función autónoma para cambiar visibilidad y actividad cuando Klint quiera
 async function actualizarEstadoAutonomo() {
   try {
-    const promptEstado = 'Genera un estado corto de Discord para un usuario casual (máximo 5 palabras). Responde SOLO con el texto del estado, sin comillas ni explicaciones.';
-    const result = await model.generateContent(promptEstado);
-    const response = await result.response;
-    const textoEstado = response.text()?.trim() || 'viendo el chat';
+    const estadosVisibilidad = ['online', 'idle', 'dnd'];
+    const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
+    
+    let textoEstado = '';
 
-    const estados = ['online', 'idle', 'dnd'];
-    const estadoAleatorio = estados[Math.floor(Math.random() * estados.length)];
+    // Intenta usar la IA si hay cuota disponible, si no, usa el generador casual
+    try {
+      const prompt = 'Escribe un estado de Discord súper corto (máximo 4 palabras) de algo que haría un usuario casual en su compu. Responde SOLO con el texto.';
+      const result = await model.generateContent(prompt);
+      const res = await result.response;
+      textoEstado = res.text()?.trim().replace(/^["']|["']$/g, '');
+    } catch (e) {
+      // Fallback local instantáneo sin gastar cuota si la API está ocupada
+      textoEstado = ACTIVIDADES_CASUALES[Math.floor(Math.random() * ACTIVIDADES_CASUALES.length)];
+    }
+
+    if (!textoEstado) {
+      textoEstado = ACTIVIDADES_CASUALES[Math.floor(Math.random() * ACTIVIDADES_CASUALES.length)];
+    }
 
     client.user.setPresence({
       status: estadoAleatorio,
       activities: [{ name: textoEstado, type: ActivityType.Custom }]
     });
-    console.log(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
+    console.log(`Klint cambió su estado a [${estadoAleatorio}]: ${textoEstado}`);
   } catch (error) {
     console.error('Error al actualizar estado autónomo:', error);
   }
 }
 
-// Función auxiliar para convertir una URL de imagen a un objeto Part de Gemini
+// Programa cambios de estado en tiempos impredecibles para sonar más humano
+function programarSiguienteCambioEstado() {
+  const minutosAleatorios = Math.floor(Math.random() * (45 - 15 + 1)) + 15;
+  setTimeout(() => {
+    actualizarEstadoAutonomo();
+    programarSiguienteCambioEstado();
+  }, minutosAleatorios * 60 * 1000);
+}
+
+// Convierte URL de adjuntos a formato multimodal de Gemini
 async function urlToGenerativePart(url) {
   try {
     const response = await fetch(url);
@@ -122,7 +161,7 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Procesar interacción con la IA (Texto + Contexto + Soporte para imágenes)
+// Procesar interacción con la IA con captura de límite de cuota
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -149,7 +188,6 @@ ${promptUsuario}`;
 
     const contents = [promptText];
 
-    // Si existen imágenes/archivos adjuntos en el mensaje actual, se convierten para la IA
     if (adjuntos.length > 0) {
       for (const attachment of adjuntos) {
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
@@ -165,6 +203,9 @@ ${promptUsuario}`;
     return response.text() || 'banco de memoria vacío, no sé qué decir jsjs';
   } catch (error) {
     console.error('Error en Gemini API:', error);
+    if (error.status === 429 || error.message?.includes('429')) {
+      return 'ando con un poco de lag por tantas peticiones jsjs, dame unos segundos y me repito.';
+    }
     return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
   }
 }
