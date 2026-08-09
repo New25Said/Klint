@@ -3,38 +3,89 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
+// Registro interno de logs para el Dashboard
+const systemLogs = [];
+function logEvent(msg) {
+  const timestamp = new Date().toLocaleTimeString();
+  const entry = `[${timestamp}] ${msg}`;
+  console.log(entry);
+  systemLogs.unshift(entry);
+  if (systemLogs.length > 30) systemLogs.pop();
+}
+
 // Carga la instrucción de sistema desde el archivo txt independiente
 function cargarSystemInstruction() {
   try {
     const filePath = path.join(__dirname, 'system_instruction.txt');
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
-    console.error('No se pudo cargar system_instruction.txt, usando predeterminado:', error);
+    logEvent('Error al cargar system_instruction.txt');
     return 'Eres Klint, un usuario más de la comunidad de Discord. Habla relajado y casual.';
   }
 }
 
-// Servidor Express para servir index.html y mantener Render activo
+// Servidor Express
 const app = express();
+app.use(express.json());
 const PORT = process.env.PORT || 10000;
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor HTTP activo en puerto ${PORT}`);
+// Middleware de verificación para la clave 'saidkey'
+function validarKey(req, res, next) {
+  const { key } = req.body;
+  const claveCorrecta = process.env.saidkey || process.env.SAIDKEY;
+  if (key && claveCorrecta && key === claveCorrecta) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Clave no autorizada' });
+  }
+}
+
+// Endpoints del Dashboard
+app.post('/api/login', validarKey, (req, res) => {
+  res.json({ success: true });
 });
 
-// Auto-ping a la URL fija de Render para evitar suspensión del servicio gratuito
+app.post('/api/get-prompt', validarKey, (req, res) => {
+  res.json({ prompt: cargarSystemInstruction() });
+});
+
+app.post('/api/save-prompt', validarKey, (req, res) => {
+  try {
+    const { prompt } = req.body;
+    fs.writeFileSync(path.join(__dirname, 'system_instruction.txt'), prompt, 'utf8');
+    logEvent('Instrucciones de personalidad actualizadas desde el Dashboard');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'No se pudo guardar el archivo' });
+  }
+});
+
+app.post('/api/get-logs', validarKey, (req, res) => {
+  res.json({ logs: systemLogs });
+});
+
+app.post('/api/force-status', validarKey, async (req, res) => {
+  await actualizarEstadoIA();
+  res.json({ success: true });
+});
+
+app.listen(PORT, () => {
+  logEvent(`Servidor HTTP activo en puerto ${PORT}`);
+});
+
+// Auto-ping
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
-    .then(() => console.log('Self-ping exitoso para mantener Klint activo.'))
+    .then(() => logEvent('Self-ping exitoso para mantener Klint activo.'))
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Inicialización del Cliente de Discord
+// Inicialización de Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -47,7 +98,6 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message]
 });
 
-// Registro de comandos Slash
 const commands = [
   new SlashCommandBuilder()
     .setName('klint')
@@ -60,7 +110,7 @@ const commands = [
 ].map(command => command.toJSON());
 
 client.once('clientReady', async () => {
-  console.log(`Klint ha iniciado sesión como ${client.user.tag}`);
+  logEvent(`Klint ha iniciado sesión como ${client.user.tag}`);
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
@@ -68,40 +118,54 @@ client.once('clientReady', async () => {
       Routes.applicationCommands(client.user.id),
       { body: commands }
     );
-    console.log('Comandos /klint registrados correctamente.');
+    logEvent('Comandos /klint registrados correctamente.');
   } catch (error) {
-    console.error('Error al registrar comandos slash:', error);
+    logEvent(`Error al registrar comandos slash: ${error.message}`);
   }
 
-  // Establecer primer estado dinámico al iniciar y programar cambios espontáneos
   await actualizarEstadoIA();
   programarSiguienteCambioEstado();
 });
 
-// Función para consultar a la API REST de Gemini v1
-async function consultarGemini(parts) {
-  const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-  
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts }] })
-  });
+// Lista de modelos ordenada por prioridad para fallback instantáneo
+const MODELOS_FALLBACK = [
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
+  'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent'
+];
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(`Error ${response.status}: ${JSON.stringify(data)}`);
+// Consulta a Gemini con redundancia automática
+async function consultarGeminiMultimodelo(parts) {
+  let ultimoError = null;
+
+  for (const endpoint of MODELOS_FALLBACK) {
+    try {
+      const url = `${endpoint}?key=${process.env.GEMINI_API_KEY}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts }] })
+      });
+
+      const data = await response.json();
+      if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return data.candidates[0].content.parts[0].text;
+      }
+      ultimoError = data.error?.message || `Status ${response.status}`;
+    } catch (err) {
+      ultimoError = err.message;
+    }
   }
 
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  throw new Error(`Todos los modelos fallaron. Último error: ${ultimoError}`);
 }
 
-// Generación 100% IA del estado de presencia de Klint sin usar listas fijas
+// Generación autónoma de presencia por la IA
 async function actualizarEstadoIA() {
   try {
-    const promptEstado = 'Genera una frase de estado para Discord de lo que estaría haciendo un usuario casual en su computadora en este momento (máximo 5 palabras). Responde SOLO con el texto del estado, sin comillas, sin formato extra ni explicaciones.';
+    const promptEstado = 'Genera un texto corto de estado para Discord de lo que estaría haciendo un usuario informal en su compu en este instante (máximo 5 palabras). Responde ÚNICAMENTE con el texto del estado.';
     
-    const textoGenerado = await consultarGemini([{ text: promptEstado }]);
+    const textoGenerado = await consultarGeminiMultimodelo([{ text: promptEstado }]);
     const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'en la compu';
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
@@ -112,13 +176,12 @@ async function actualizarEstadoIA() {
       activities: [{ name: textoEstado, type: ActivityType.Custom }]
     });
     
-    console.log(`Klint cambió autónomamente su estado a [${estadoAleatorio}]: ${textoEstado}`);
+    logEvent(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
   } catch (error) {
-    console.error('Error al generar estado con IA:', error);
+    logEvent(`Error al generar estado autónomo: ${error.message}`);
   }
 }
 
-// Programa el próximo cambio de estado en un tiempo aleatorio (entre 20 y 50 minutos)
 function programarSiguienteCambioEstado() {
   const minutosAleatorios = Math.floor(Math.random() * (50 - 20 + 1)) + 20;
   setTimeout(async () => {
@@ -127,7 +190,6 @@ function programarSiguienteCambioEstado() {
   }, minutosAleatorios * 60 * 1000);
 }
 
-// Convierte URL de adjuntos a formato base64 para análisis visual de Gemini
 async function urlToGenerativePart(url) {
   try {
     const response = await fetch(url);
@@ -141,12 +203,11 @@ async function urlToGenerativePart(url) {
       }
     };
   } catch (error) {
-    console.error('Error procesando imagen adjunta:', error);
+    logEvent(`Error procesando imagen: ${error.message}`);
     return null;
   }
 }
 
-// Procesar mensajes del chat con IA
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -182,18 +243,14 @@ ${promptUsuario}`;
       }
     }
 
-    const respuesta = await consultarGemini(parts);
+    const respuesta = await consultarGeminiMultimodelo(parts);
     return respuesta || 'banco de memoria vacío, no sé qué decir jsjs';
   } catch (error) {
-    console.error('Error en procesarRespuestaIA:', error);
-    if (error.message?.includes('429')) {
-      return 'ando con un poco de lag por tantas peticiones jsjs, dame unos segundos y me repito.';
-    }
+    logEvent(`Error en procesarRespuestaIA: ${error.message}`);
     return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
   }
 }
 
-// Manejo de Comandos Slash (/klint)
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -210,7 +267,6 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// Manejo de Mensajes Directos, Menciones y Nombres
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
 
