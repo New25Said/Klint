@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
-// Logs del sistema para la Consola y Dashboard Web
+// Logs del sistema
 const systemLogs = [];
 function logEvent(msg, esError = false) {
   const timestamp = new Date().toLocaleTimeString();
@@ -16,16 +16,15 @@ function logEvent(msg, esError = false) {
   if (systemLogs.length > 50) systemLogs.pop();
 }
 
-// Captura global de errores no controlados para que no tumbe el proceso sin avisar
 process.on('unhandledRejection', (reason) => {
-  logEvent(`Promesa no manejada (Unhandled Rejection): ${reason?.stack || reason}`, true);
+  logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true);
 });
 
 process.on('uncaughtException', (err) => {
-  logEvent(`Excepción no capturada (Uncaught Exception): ${err.stack || err.message}`, true);
+  logEvent(`Excepción no capturada: ${err.stack || err.message}`, true);
 });
 
-// Carga de instrucciones de personalidad
+// Carga de system instruction
 function cargarSystemInstruction() {
   try {
     const filePath = path.join(__dirname, 'system_instruction.txt');
@@ -36,7 +35,6 @@ function cargarSystemInstruction() {
   }
 }
 
-// Extrae la URL limpia de Firebase
 function obtenerFirebaseUrl() {
   let url = process.env.FIREBASE_DATABASE_URL || '';
   const matchMarkdown = url.match(/\((https?:\/\/[^\)]+)\)/);
@@ -66,10 +64,10 @@ app.post('/api/get-prompt', validarKey, (req, res) => res.json({ prompt: cargarS
 app.post('/api/save-prompt', validarKey, (req, res) => {
   try {
     fs.writeFileSync(path.join(__dirname, 'system_instruction.txt'), req.body.prompt, 'utf8');
-    logEvent('Instrucciones del sistema actualizadas desde la web.');
+    logEvent('Instrucciones actualizadas desde la web.');
     res.json({ success: true });
   } catch (err) {
-    logEvent(`No se pudo guardar system_instruction.txt: ${err.message}`, true);
+    logEvent(`Error guardando prompt: ${err.message}`, true);
     res.status(500).json({ error: 'No se pudo guardar' });
   }
 });
@@ -79,9 +77,43 @@ app.post('/api/force-status', validarKey, async (req, res) => {
   res.json({ success: true });
 });
 
+// Trigger Deploy Hook de Render (Con clave de admin)
+app.post('/api/trigger-deploy', validarKey, async (req, res) => {
+  const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
+  if (!deployHookUrl) {
+    return res.status(400).json({ error: 'No se configuró RENDER_DEPLOY_HOOK_URL en las Variables de Entorno' });
+  }
+  try {
+    const response = await fetch(deployHookUrl, { method: 'POST' });
+    if (response.ok) {
+      logEvent('Deploy de Render activado desde la interfaz web.');
+      return res.json({ success: true, message: 'Deploy iniciado correctamente' });
+    }
+    res.status(500).json({ error: 'Render rechazó la solicitud de deploy' });
+  } catch (err) {
+    logEvent(`Error activando Deploy Hook: ${err.message}`, true);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint público del Chat Web (Límite 15 mensajes por sesión)
+app.post('/api/web-chat', async (req, res) => {
+  try {
+    const { message, count } = req.body;
+    if (count > 15) {
+      return res.json({ response: 'alcanzaste el límite de 15 mensajes de prueba pe mano xd' });
+    }
+    const { respuesta } = await procesarRespuestaIA(null, message || 'hola', [], true, { username: 'UsuarioWeb', id: 'web_guest' }, null);
+    res.json({ response: respuesta, remaining: 15 - count });
+  } catch (err) {
+    logEvent(`Error en Web Chat: ${err.message}`, true);
+    res.status(500).json({ response: 'me dio un lag xd' });
+  }
+});
+
 app.listen(PORT, () => logEvent(`Servidor HTTP activo en puerto ${PORT}`));
 
-// Auto-ping para mantener activo el servidor
+// Auto-ping
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -102,7 +134,6 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
 });
 
-// Comandos Slash
 const commands = [
   new SlashCommandBuilder()
     .setName('klint')
@@ -131,7 +162,7 @@ client.once('clientReady', async () => {
   programarCambioEstadoRandom();
 });
 
-// Modelos Gemini Fallback
+// Modelos Gemini
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
@@ -157,59 +188,34 @@ async function consultarGemini(parts, maxTokens = 120) {
       if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
         return data.candidates[0].content.parts[0].text;
       }
-      ultimoError = data.error?.message || `Status HTTP ${response.status}`;
-      logEvent(`Prueba de modelo fallida (${endpoint}): ${ultimoError}`, true);
+      ultimoError = data.error?.message || `Status ${response.status}`;
     } catch (err) {
       ultimoError = err.message;
-      logEvent(`Excepción al conectar con Gemini (${endpoint}): ${err.message}`, true);
     }
   }
 
-  throw new Error(`Todos los modelos de Gemini fallaron. Último error: ${ultimoError}`);
+  throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Búsqueda de GIF con múltiples fallbacks (Tenor + Giphy) y reporte de errores
-// Búsqueda de GIF con enlace multimedia directo (.gif)
+// Búsqueda de GIF infalible por Tenor v1 API Pública
 async function buscarGifReal(busqueda) {
   const termino = busqueda || 'funny meme';
-  
-  // Intento 1: API de Tenor con clave de cliente de Discord oficial (extrae el archivo .gif directo)
   try {
-    const urlTenor = `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=8&client_key=discord`;
+    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=8`;
     const res = await fetch(urlTenor);
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
         const itemRandom = data.results[Math.floor(Math.random() * data.results.length)];
-        const gifDirecto = itemRandom.media_formats?.gif?.url || itemRandom.media_formats?.mediumgif?.url;
+        const gifDirecto = itemRandom.media?.[0]?.gif?.url || itemRandom.url;
         if (gifDirecto) return gifDirecto;
       }
-    } else {
-      logEvent(`Tenor API devolvió HTTP ${res.status}`, true);
     }
   } catch (err) {
     logEvent(`Error al consultar Tenor API: ${err.message}`, true);
   }
 
-  // Intento 2: Giphy API pública
-  try {
-    const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=GlV1GwO535PGE2GLdQ389B3A2C42Bch1&q=${encodeURIComponent(termino)}&limit=8&rating=g`;
-    const res = await fetch(urlGiphy);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.data && data.data.length > 0) {
-        const itemRandom = data.data[Math.floor(Math.random() * data.data.length)];
-        return itemRandom.images.original.url;
-      }
-    } else {
-      logEvent(`Giphy API devolvió HTTP ${res.status}`, true);
-    }
-  } catch (err) {
-    logEvent(`Error al consultar Giphy API: ${err.message}`, true);
-  }
-
-  // Fallback 3: GIF directo de respaldo si las APIs no responden
-  return 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbm95enA1aGdxeGszbmd6bm03eHkzaGV6bXk4bmtxZXZkZnl0NXl6ciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/L1R1tvI9sv3y0/giphy.gif';
+  return 'https://media.tenor.com/yhe9to9A4E8AAAAC/cat-cat-typing.gif';
 }
 
 // Generador de Memes en Imagen Real
@@ -244,12 +250,12 @@ function obtenerUrlAudioVozNativo(texto) {
     if (!textoLimpio) return null;
     return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textoLimpio)}&tl=es-US&client=tw-ob`;
   } catch (err) {
-    logEvent(`Error formando URL de audio TTS: ${err.message}`, true);
+    logEvent(`Error generando audio nativo: ${err.message}`, true);
     return null;
   }
 }
 
-// REST API para Firebase con monitoreo
+// REST API para Firebase
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) return null;
@@ -258,9 +264,8 @@ async function obtenerMemoriaUsuario(userId) {
     const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
     const res = await fetch(`${cleanUrl}usuarios/${userId}.json`);
     if (res.ok) return await res.json();
-    logEvent(`Firebase devolvió status HTTP ${res.status} al leer usuario ${userId}`, true);
   } catch (err) {
-    logEvent(`Error al conectar con Firebase (obtenerMemoriaUsuario): ${err.message}`, true);
+    logEvent(`Error al conectar con Firebase: ${err.message}`, true);
   }
   return null;
 }
@@ -295,7 +300,7 @@ async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, 
       logEvent(`[Firebase] Nueva memoria guardada para ${username}`);
     }
   } catch (err) {
-    logEvent(`Error al actualizar memoria en Firebase: ${err.message}`, true);
+    logEvent(`Error guardando en Firebase: ${err.message}`, true);
   }
 }
 
@@ -311,11 +316,11 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
     const resumenParaGuardar = (!textoRespuesta || textoRespuesta.toUpperCase().startsWith('NO')) ? null : textoRespuesta;
     await actualizarPerfilYMemoria(user.id, user.username, user.displayName || user.username, mensajeUsuario, resumenParaGuardar);
   } catch (err) {
-    logEvent(`Error al evaluar recuerdo de memoria: ${err.message}`, true);
+    logEvent(`Error evaluando memoria: ${err.message}`, true);
   }
 }
 
-// Cambio de estado con monitoreo
+// ESTADO PERSONALIZADO ÚNICO
 async function actualizarEstadoIA(peticionManual = null) {
   try {
     let promptEstado = 'Inventa un estado de perfil de Discord informal y espontáneo (máximo 5 palabras). Todo en minúsculas, casual, sin puntos ni comillas.';
@@ -338,7 +343,7 @@ async function actualizarEstadoIA(peticionManual = null) {
     });
     logEvent(`Estado Personalizado actualizado: "${textoEstado}" (${estadoAleatorio})`);
   } catch (error) {
-    logEvent(`Error al actualizar presencia en Discord: ${error.message}`, true);
+    logEvent(`Error actualizando presencia: ${error.message}`, true);
   }
 }
 
@@ -361,7 +366,7 @@ async function urlToGenerativePart(url) {
       }
     };
   } catch (error) {
-    logEvent(`Error al descargar imagen adjunta para la IA: ${error.message}`, true);
+    logEvent(`Error descargando imagen para la IA: ${error.message}`, true);
     return null;
   }
 }
@@ -431,7 +436,7 @@ async function obtenerDetallesIntegrantesServidor(guild) {
 
     return resumenMiembros.slice(0, 25).join('\n');
   } catch (err) {
-    logEvent(`Error leyendo la lista de miembros del servidor: ${err.message}`, true);
+    logEvent(`Error obteniendo integrantes del servidor: ${err.message}`, true);
     return 'No se pudo sincronizar la lista de miembros';
   }
 }
@@ -444,22 +449,28 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
     const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
 
-    const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
-    const historialFormateado = mensajesPrevios.reverse().map(m => {
-      const usuarioNombre = m.author.username;
-      const usuarioId = m.author.id;
-      let contenido = m.content;
+    let historialFormateado = '';
+    let conteoPrevio = 0;
 
-      if (m.stickers && m.stickers.size > 0) {
-        const nombresStickers = m.stickers.map(s => `[Sticker enviado: ${s.name}]`).join(' ');
-        contenido = `${contenido} ${nombresStickers}`.trim();
-      }
+    if (canal) {
+      const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
+      conteoPrevio = mensajesPrevios.size;
+      historialFormateado = mensajesPrevios.reverse().map(m => {
+        const usuarioNombre = m.author.username;
+        const usuarioId = m.author.id;
+        let contenido = m.content;
 
-      return `${usuarioNombre} (<@${usuarioId}>): ${contenido}`;
-    }).join('\n');
+        if (m.stickers && m.stickers.size > 0) {
+          const nombresStickers = m.stickers.map(s => `[Sticker enviado: ${s.name}]`).join(' ');
+          contenido = `${contenido} ${nombresStickers}`.trim();
+        }
+
+        return `${usuarioNombre} (<@${usuarioId}>): ${contenido}`;
+      }).join('\n');
+    }
 
     let contextoMemoriaAutor = '';
-    if (usuarioAutor) {
+    if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
       const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
@@ -468,7 +479,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       }
     }
 
-    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
+    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
 
     const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
@@ -533,7 +544,7 @@ ${promptUsuario}`;
       gifUrlEncontrada = await buscarGifReal(terminoBusqueda);
     }
 
-    if (usuarioAutor) {
+    if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
       evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
     }
 
@@ -542,7 +553,7 @@ ${promptUsuario}`;
       gifUrl: gifUrlEncontrada, 
       memeImagenUrl, 
       audioUrl: audioUrlGenerado, 
-      conteoMensajes: mensajesPrevios.size 
+      conteoMensajes: conteoPrevio 
     };
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`, true);
@@ -602,7 +613,7 @@ ${resumenMemoria}
 ⚡ **CAPACIDADES ACTIVAS DE KLINT:**
 1. 🎙️ **Notas de voz:** Pídeme "manda un audio" y te responderé en MP3.
 2. 🖼️ **Generador de Memes e Imágenes:** Pídeme "haz un meme" y crearé una imagen personalizada.
-3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir un GIF real de Giphy.
+3. 🎞️ **GIFs en vivo:** Pídeme "manda un gif" para recibir un GIF real de Tenor.
 4. 👀 **Presencia en Tiempo Real:** Leo tu estado personalizado de perfil y si escuchas Spotify o juegas.
 5. 💬 **Memoria Persistente:** Recuerdo tus gustos y conversaciones en Firebase.
 
@@ -611,7 +622,7 @@ ${gifUrl ? gifUrl : ''}`;
       await interaction.editReply({ content: mensajeStatus, files: archivosAdjuntos });
     }
   } catch (err) {
-    logEvent(`Error al procesar interacción Slash Command /${interaction.commandName}: ${err.message}`, true);
+    logEvent(`Error procesar Slash Command /${interaction.commandName}: ${err.message}`, true);
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply('Ocurrió un error procesando el comando.');
     }
@@ -667,7 +678,7 @@ client.on('messageCreate', async message => {
       }
     }
   } catch (err) {
-    logEvent(`Error enviando mensaje a Discord (channel ID: ${message.channel?.id}): ${err.message}`, true);
+    logEvent(`Error enviando mensaje a Discord: ${err.message}`, true);
   }
 });
 
