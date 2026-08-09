@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Klint - Discord Bot & Dashboard</title>
+  <title>Klint - Bot de Discord con IA Integrada</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-primary: #313338;
@@ -18,6 +18,7 @@
       --text-muted: #949ba4;
       --green-status: #23a55a;
       --danger-color: #da373c;
+      --accent-purple: #99aab5;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -57,7 +58,7 @@
     }
 
     h1 { font-size: 2.8rem; font-weight: 800; color: #ffffff; margin-bottom: 0.75rem; }
-    .subtitle { font-size: 1.15rem; color: var(--text-muted); max-width: 600px; margin: 0 auto 2rem auto; line-height: 1.5; }
+    .subtitle { font-size: 1.15rem; color: var(--text-muted); max-width: 650px; margin: 0 auto 2rem auto; line-height: 1.5; }
 
     .btn {
       display: inline-flex; align-items: center; justify-content: center;
@@ -67,10 +68,25 @@
     }
     .btn:hover { background-color: var(--brand-hover); transform: translateY(-2px); }
 
-    /* Dashboard Accordion Panel */
+    /* Sección de Capacidades Públicas */
+    .section-title { font-size: 1.5rem; color: #ffffff; margin-bottom: 1rem; text-align: left; font-weight: 700; }
+    
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.25rem; margin-bottom: 2rem;
+    }
+
+    .feature-card {
+      background: var(--bg-secondary); padding: 1.5rem; border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.03); text-align: left;
+    }
+    .feature-card h3 { color: #ffffff; font-size: 1.15rem; margin-bottom: 0.5rem; }
+    .feature-card p { color: var(--text-muted); font-size: 0.92rem; line-height: 1.45; }
+
+    /* Dashboard Admin */
     .admin-toggle-btn {
       margin-top: 1.5rem; background: transparent; border: 1px solid var(--text-muted);
-      color: var(--text-muted); padding: 0.5rem 1.2rem; border-radius: 20px;
+      color: var(--text-muted); padding: 0.6rem 1.4rem; border-radius: 20px;
       font-size: 0.9rem; cursor: pointer; transition: 0.2s;
     }
     .admin-toggle-btn:hover { border-color: white; color: white; }
@@ -80,27 +96,33 @@
       opacity: 0; background: var(--bg-secondary); border-radius: 16px; margin-top: 1.5rem;
       border: 1px solid rgba(255, 255, 255, 0.05); text-align: left; padding: 0 2rem;
     }
-    .dashboard-panel.active { max-height: 1200px; opacity: 1; padding: 2rem; }
+    .dashboard-panel.active { max-height: 1400px; opacity: 1; padding: 2rem; }
 
     .login-box { display: flex; gap: 0.5rem; margin-top: 1rem; }
     .input-field {
       flex: 1; background: var(--bg-tertiary); border: 1px solid #4e5058;
-      color: white; padding: 0.75rem 1rem; border-radius: 8px; font-size: 1rem;
+      color: white; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.95rem;
     }
     .input-field:focus { outline: none; border-color: var(--brand-color); }
 
     .dash-content { display: none; margin-top: 1.5rem; }
+    .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    
+    .stat-card { background: var(--bg-tertiary); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.03); }
+    .stat-card h4 { color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; }
+    .stat-card p { color: #ffffff; font-size: 1.4rem; font-weight: 700; margin-top: 0.2rem; }
+
     .dash-section { margin-bottom: 1.5rem; }
-    .dash-section h3 { color: white; margin-bottom: 0.5rem; font-size: 1.1rem; }
+    .dash-section h3 { color: white; margin-bottom: 0.5rem; font-size: 1.05rem; }
 
     textarea {
-      width: 100%; height: 180px; background: var(--bg-tertiary); border: 1px solid #4e5058;
+      width: 100%; height: 160px; background: var(--bg-tertiary); border: 1px solid #4e5058;
       color: #dbdee1; padding: 1rem; border-radius: 8px; font-family: monospace; resize: vertical;
     }
 
     .log-box {
       background: var(--bg-tertiary); border-radius: 8px; padding: 1rem;
-      height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #10b981;
+      height: 160px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #10b981;
     }
 
     .status-msg { margin-top: 0.5rem; font-size: 0.9rem; font-weight: 600; }
@@ -108,49 +130,113 @@
 </head>
 <body>
   <div class="container">
+    <!-- Hero Principal -->
     <div class="hero">
       <div class="avatar-wrapper">
         <div class="avatar">K</div>
-        <div class="status-badge"></div>
+        <div class="status-badge" title="En línea"></div>
       </div>
       <h1>Klint Bot</h1>
-      <p class="subtitle">La IA multitarea diseñada para chatear en Discord como un miembro más del servidor. Reconoce imágenes, analiza contexto y mantiene presencia activa.</p>
+      <p class="subtitle">Un miembro más en tu servidor de Discord. IA con conversación natural, razonamiento contextual, lectura multimodal de imágenes y presencia dinámica autónoma.</p>
       
       <a class="btn" href="https://discord.com/oauth2/authorize?client_id=1535688886326530198&permissions=8&integration_type=0&scope=bot+applications.commands" target="_blank">Añadir a Discord</a>
-      
-      <br>
+    </div>
+
+    <!-- Sección Pública de Capacidades -->
+    <h2 class="section-title">Capacidades de Klint</h2>
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3>💬 Conversación Natural</h3>
+        <p>Responde por comandos (/klint), menciones o invocación de nombre (clin, klin, klint, klinty). Utiliza jerga informal sin sonar forzado ni robótico.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🧠 Análisis Contextual</h3>
+        <p>Lee el historial reciente del chat antes de responder para entender si están escribiendo ideas en mensajes separados o si la charla terminó.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🖼️ Lectura Multimodal</h3>
+        <p>Procesa memes, fotos e imágenes adjuntas en tiempo real opinando o respondiendo al contenido visual.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🟢 Estado e Identidad Autónoma</h3>
+        <p>Genera por sí mismo sus estados de actividad (Ausente, No Molestar, En Línea) e inventa lo que está haciendo sin repetir listas fijas.</p>
+      </div>
+      <div class="feature-card">
+        <h3>⚡ Respuesta Multitarea</h3>
+        <p>Procesa interacciones simultáneas en servidores y chats privados (DMs) manteniendo la estabilidad sin congelarse.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🌐 100% Infraestructura Web</h3>
+        <p>Alojado en la nube con Render y GitHub, garantizando disponibilidad y actualización continua.</p>
+      </div>
+    </div>
+
+    <!-- Botón Toggle Admin -->
+    <div style="text-align: center;">
       <button class="admin-toggle-btn" onclick="toggleDashboard()">⚙️ Panel de Control Klint</button>
 
-      <!-- Panel Desplegable Admin -->
+      <!-- Panel Desplegable Dashboard Admin -->
       <div class="dashboard-panel" id="dashPanel">
-        <h2 style="color: white; margin-bottom: 0.5rem;">Panel de Administración</h2>
-        <p style="color: var(--text-muted); font-size: 0.9rem;">Acceso restringido para el desarrollador.</p>
+        <h2 style="color: white; margin-bottom: 0.5rem; font-size: 1.4rem;">Panel de Control</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Administración y monitoreo en tiempo real.</p>
 
         <!-- Formulario Login -->
         <div id="loginForm">
           <div class="login-box">
             <input type="password" id="saidkeyInput" class="input-field" placeholder="Ingresa la clave dicho en saidkey...">
-            <button class="btn" style="border-radius: 8px;" onclick="autenticar()">Ingresar</button>
+            <button class="btn" style="border-radius: 8px; padding: 0.75rem 1.5rem;" onclick="autenticar()">Ingresar</button>
           </div>
           <div id="loginMsg" class="status-msg"></div>
         </div>
 
-        <!-- Contenido Privado del Dashboard -->
+        <!-- Contenido Privado Dashboard -->
         <div id="dashContent" class="dash-content">
-          <div class="dash-section">
-            <h3>Acciones Rápidas</h3>
-            <button class="btn" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="forzarEstado()">⚡ Forzar Nuevo Estado por IA</button>
+          <!-- Métricas del Bot -->
+          <div class="dash-grid">
+            <div class="stat-card">
+              <h4>Servidores</h4>
+              <p id="statGuilds">--</p>
+            </div>
+            <div class="stat-card">
+              <h4>Latencia API</h4>
+              <p id="statPing">-- ms</p>
+            </div>
+            <div class="stat-card">
+              <h4>Modelo IA Activo</h4>
+              <p id="statModel">Gemini 3.5 Lite</p>
+            </div>
           </div>
 
+          <!-- Acciones Rápidas -->
+          <div class="dash-section">
+            <h3>Acciones Rápidas</h3>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button class="btn" style="padding: 0.5rem 1rem; font-size: 0.88rem;" onclick="forzarEstado()">⚡ Forzar Nuevo Estado por IA</button>
+            </div>
+          </div>
+
+          <!-- Enviar Mensaje a Canal -->
+          <div class="dash-section">
+            <h3>Enviar Mensaje como Klint</h3>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+              <input type="text" id="channelIdInput" class="input-field" placeholder="ID del Canal de Discord...">
+              <input type="text" id="msgTextInput" class="input-field" placeholder="Mensaje a enviar...">
+              <button class="btn" style="padding: 0.5rem 1rem; font-size: 0.88rem; border-radius: 8px;" onclick="enviarMensajeCanal()">Enviar</button>
+            </div>
+            <div id="sendMsgStatus" class="status-msg"></div>
+          </div>
+
+          <!-- Editor de Personalidad -->
           <div class="dash-section">
             <h3>Instrucciones de Personalidad (system_instruction.txt)</h3>
             <textarea id="sysPromptText"></textarea>
-            <button class="btn" style="margin-top: 0.5rem; padding: 0.6rem 1.2rem;" onclick="guardarPrompt()">Guardar Cambios</button>
+            <button class="btn" style="margin-top: 0.5rem; padding: 0.6rem 1.2rem; font-size: 0.9rem;" onclick="guardarPrompt()">Guardar Cambios</button>
             <div id="saveMsg" class="status-msg"></div>
           </div>
 
+          <!-- Logs -->
           <div class="dash-section">
-            <h3>Logs Recientes del Sistema</h3>
+            <h3>Console Logs en Vivo</h3>
             <div class="log-box" id="logsContainer">Cargando eventos...</div>
           </div>
         </div>
@@ -179,12 +265,26 @@
         msg.innerText = 'Acceso concedido.';
         document.getElementById('loginForm').style.display = 'none';
         document.getElementById('dashContent').style.display = 'block';
+        cargarStats();
         cargarPrompt();
         cargarLogs();
+        setInterval(cargarLogs, 5000); // Actualiza logs automáticamente
       } else {
         msg.style.color = 'var(--danger-color)';
         msg.innerText = 'Clave incorrecta.';
       }
+    }
+
+    async function cargarStats() {
+      const key = document.getElementById('saidkeyInput').value;
+      const res = await fetch('/api/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key })
+      });
+      const data = await res.json();
+      if (data.guilds !== undefined) document.getElementById('statGuilds').innerText = data.guilds;
+      if (data.ping !== undefined) document.getElementById('statPing').innerText = data.ping + ' ms';
     }
 
     async function cargarPrompt() {
@@ -227,6 +327,28 @@
       });
       alert('Nuevo estado solicitado a la IA.');
       cargarLogs();
+    }
+
+    async function enviarMensajeCanal() {
+      const key = document.getElementById('saidkeyInput').value;
+      const channelId = document.getElementById('channelIdInput').value;
+      const message = document.getElementById('msgTextInput').value;
+      const msgStatus = document.getElementById('sendMsgStatus');
+
+      const res = await fetch('/api/send-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, channelId, message })
+      });
+
+      if (res.ok) {
+        msgStatus.style.color = '#10b981';
+        msgStatus.innerText = 'Mensaje enviado con éxito.';
+        document.getElementById('msgTextInput').value = '';
+      } else {
+        msgStatus.style.color = 'var(--danger-color)';
+        msgStatus.innerText = 'Error al enviar mensaje (verifica la ID del canal).';
+      }
     }
 
     async function cargarLogs() {
