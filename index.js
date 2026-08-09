@@ -1,7 +1,8 @@
-const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ActivityType, REST, Routes, SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const googleTTS = require('google-tts-api');
 
 // Logs del sistema para el Dashboard Web
 const systemLogs = [];
@@ -33,9 +34,6 @@ function obtenerFirebaseUrl() {
   if (url && !url.startsWith('http')) url = `https://${url}`;
   return url;
 }
-
-// Variable global donde Klint guarda su actividad estética actual
-let actividadActualKlint = { tipo: 'Jugando a', nombre: 'minecraft' };
 
 // Servidor Express
 const app = express();
@@ -79,7 +77,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Client de Discord con Presencias e Intents de Miembros activados
+// Client de Discord
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -169,6 +167,30 @@ async function buscarGifRealTenor(busqueda) {
     logEvent(`Error buscando GIF en Tenor: ${err.message}`);
   }
   return null;
+}
+
+// Generador de Memes en Imagen Real (Memegen.link API)
+function generarUrlMemeImagen(textoMeme) {
+  const plantillas = ['doge', 'drake', 'catmeme', 'pigeon', 'grim', 'cryingwillis'];
+  const plantillaRandom = plantillas[Math.floor(Math.random() * plantillas.length)];
+  const textoLimpio = encodeURIComponent(textoMeme.replace(/\s+/g, '_').toLowerCase() || 'meme_casual');
+  return `https://api.memegen.link/images/${plantillaRandom}/_/${textoLimpio}.png`;
+}
+
+// Generador de Audios sintetizados en MP3 con acento latino/peruano
+function obtenerUrlAudioVoz(texto) {
+  try {
+    const textoLimpio = texto.replace(/[\*\_\`\#]/g, '').slice(0, 180);
+    return googleTTS.getAudioUrl(textoLimpio, {
+      lang: 'es-US',
+      slow: false,
+      host: 'https://translate.google.com',
+      timeout: 10000,
+    });
+  } catch (err) {
+    logEvent(`Error generando audio TTS: ${err.message}`);
+    return null;
+  }
 }
 
 // REST API para Firebase
@@ -265,29 +287,16 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// Generación de presencia rica (Jugando / Escuchando) de Discord
+// ESTADO PERSONALIZADO ÚNICO Y TRADICIONAL
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    const tiposDisponibles = [
-      { type: ActivityType.Playing, tag: 'Jugando a', prompt: 'un nombre de videojuego popular o gracioso (ej: Minecraft, Roblox, GTA V)' },
-      { type: ActivityType.Listening, tag: 'Escuchando a', prompt: 'un artista o género musical (ej: Lofi Hip Hop, Bad Bunny, Radiohead)' },
-      { type: ActivityType.Watching, tag: 'Viendo', prompt: 'un canal de YouTube o video de internet (ej: Memes en YouTube, Twitch)' }
-    ];
-
-    const seleccion = tiposDisponibles[Math.floor(Math.random() * tiposDisponibles.length)];
-    let promptEstado = `Dame solo ${seleccion.prompt}. Todo en minúsculas, máximo 4 palabras, sin comillas ni puntos.`;
-
+    let promptEstado = 'Inventa un estado de perfil de Discord informal y espontáneo (máximo 5 palabras). Todo en minúsculas, casual, sin puntos ni comillas.';
     if (peticionManual) {
-      promptEstado = `Dame un texto corto para poner de estado basado en: "${peticionManual}". Máximo 4 palabras, solo texto.`;
+      promptEstado = `Genera un estado de perfil casual basado en esto: "${peticionManual}". Máximo 5 palabras, solo texto.`;
     }
 
     const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
-    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'minecraft';
-
-    actividadActualKlint = {
-      tipo: seleccion.tag,
-      nombre: textoEstado
-    };
+    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
@@ -296,12 +305,12 @@ async function actualizarEstadoIA(peticionManual = null) {
       status: estadoAleatorio,
       activities: [{
         name: textoEstado,
-        type: seleccion.type
+        type: ActivityType.Custom
       }]
     });
-    logEvent(`Presencia corregida en Discord: [${seleccion.tag} ${textoEstado}] (${estadoAleatorio})`);
+    logEvent(`Estado Personalizado cambiado a: "${textoEstado}" (${estadoAleatorio})`);
   } catch (error) {
-    logEvent(`Error al generar presencia: ${error.message}`);
+    logEvent(`Error al generar estado personalizado: ${error.message}`);
   }
 }
 
@@ -328,7 +337,6 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Búsqueda de presencia de un usuario tanto en servidor como en privado (DM)
 async function obtenerPresenciaCualquierEntorno(user, guild = null) {
   let member = null;
 
@@ -398,7 +406,7 @@ async function obtenerDetallesIntegrantesServidor(guild) {
   }
 }
 
-// Procesar respuesta
+// Procesar respuesta de la IA
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -433,17 +441,23 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
     const pideGifExplicitamente = /\b(gif|meme|imagen|manda un gif|pasa un gif|envia un gif)\b/i.test(promptUsuario);
-    const instruccionGifForzada = pideGifExplicitamente 
-      ? "\nREGLA OBLIGATORIA AHORA: El usuario te pidió un GIF/meme. DEBES incluir al final de tu respuesta la etiqueta [BUSCAR_GIF: tema_del_gif]. No te niegues a mandarlo."
-      : "\nINSTRUCCIÓN GIFS: Si te piden un GIF o si quieres acompañar tu frase con un meme, agrega al final [BUSCAR_GIF: tema].";
+    const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
+    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio)\b/i.test(promptUsuario);
+
+    let instruccionExtra = '';
+    if (pideAudio) {
+      instruccionExtra = "\nREGLA DE AUDIO: El usuario te pidió responder en audio. Escribe una respuesta corta y casual para ser sintetizada en voz.";
+    } else if (pideMemeImagen) {
+      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: El usuario te pidió un meme en imagen. Agrega al final [GENERAR_MEME: texto_del_meme].";
+    } else if (pideGifExplicitamente) {
+      instruccionExtra = "\nREGLA DE GIF: El usuario te pidió un GIF. Agrega al final [BUSCAR_GIF: tema_del_gif].";
+    }
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-TU ACTIVIDAD VISIBLE ACTUAL EN DISCORD (Por si te preguntan qué haces/escuchas): [${actividadActualKlint.tipo} ${actividadActualKlint.nombre}]
-DATOS EN TIEMPO REAL DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
-
-${instruccionGifForzada}
+DATOS DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
+${instruccionExtra}
 ${contextoMemoriaAutor}
 
 LISTA DE MIEMBROS DE ESTE SERVIDOR:
@@ -468,28 +482,46 @@ ${promptUsuario}`;
 
     let respuesta = await consultarGemini(parts, 120);
 
-    if (pideGifExplicitamente && !respuesta.includes('[BUSCAR_GIF:')) {
-      const palabras = promptUsuario.replace(/manda|pasa|envia|un|gif|meme|klint|clin/gi, '').trim();
-      const busquedaAuto = palabras.length > 2 ? palabras : 'random meme';
-      respuesta += ` [BUSCAR_GIF: ${busquedaAuto}]`;
-    }
-
     let gifUrlEncontrada = null;
-    const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
-    if (matchGif) {
-      const terminoBusqueda = matchGif[1].trim();
-      respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
-      gifUrlEncontrada = await buscarGifRealTenor(terminoBusqueda);
+    let memeImagenUrl = null;
+    let audioUrlGenerado = null;
+
+    if (pideAudio) {
+      audioUrlGenerado = obtenerUrlAudioVoz(respuesta);
+    } else if (pideMemeImagen || respuesta.includes('[GENERAR_MEME:')) {
+      const matchMeme = respuesta.match(/\[GENERAR_MEME:\s*([^\]]+)\]/i);
+      const textoMeme = matchMeme ? matchMeme[1] : 'cuando pasa xd';
+      respuesta = respuesta.replace(/\[GENERAR_MEME:\s*([^\]]+)\]/i, '').trim();
+      memeImagenUrl = generarUrlMemeImagen(textoMeme);
+    } else {
+      if (pideGifExplicitamente && !respuesta.includes('[BUSCAR_GIF:')) {
+        const palabras = promptUsuario.replace(/manda|pasa|envia|un|gif|meme|klint|clin/gi, '').trim();
+        const busquedaAuto = palabras.length > 2 ? palabras : 'random meme';
+        respuesta += ` [BUSCAR_GIF: ${busquedaAuto}]`;
+      }
+
+      const matchGif = respuesta.match(/\[BUSCAR_GIF:\s*([^\]]+)\]/i);
+      if (matchGif) {
+        const terminoBusqueda = matchGif[1].trim();
+        respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/i, '').trim();
+        gifUrlEncontrada = await buscarGifRealTenor(terminoBusqueda);
+      }
     }
 
     if (usuarioAutor) {
       evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
     }
 
-    return { respuesta, gifUrl: gifUrlEncontrada, conteoMensajes: mensajesPrevios.size };
+    return { 
+      respuesta, 
+      gifUrl: gifUrlEncontrada, 
+      memeImagenUrl, 
+      audioUrl: audioUrlGenerado, 
+      conteoMensajes: mensajesPrevios.size 
+    };
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`);
-    return { respuesta: 'me dio un lag xd', gifUrl: null, conteoMensajes: 0 };
+    return { respuesta: 'me dio un lag xd', gifUrl: null, memeImagenUrl: null, audioUrl: null, conteoMensajes: 0 };
   }
 }
 
@@ -501,16 +533,16 @@ client.on('interactionCreate', async interaction => {
     await interaction.deferReply();
     const pregunta = interaction.options.getString('pregunta');
     const esDM = !interaction.guild;
-    const { respuesta, gifUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
+    const { respuesta, gifUrl, memeImagenUrl, audioUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
     
+    let archivosAdjuntos = [];
+    if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
+    if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
+
     let mensajeFinal = respuesta;
     if (gifUrl) mensajeFinal = `${respuesta}\n${gifUrl}`.trim();
 
-    if (mensajeFinal.length > 2000) {
-      await interaction.editReply(mensajeFinal.slice(0, 1995) + '...');
-    } else {
-      await interaction.editReply(mensajeFinal);
-    }
+    await interaction.editReply({ content: mensajeFinal, files: archivosAdjuntos });
   }
 });
 
@@ -543,17 +575,21 @@ client.on('messageCreate', async message => {
     await message.channel.sendTyping();
     
     const adjuntosArray = Array.from(message.attachments.values());
-    const { respuesta, gifUrl, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author, message.guild);
+    const { respuesta, gifUrl, memeImagenUrl, audioUrl, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author, message.guild);
     
+    let archivosAdjuntos = [];
+    if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
+    if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
+
     let textoFinal = respuesta;
     if (gifUrl) textoFinal = `${respuesta}\n${gifUrl}`.trim();
 
     const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
 
     if (esDM || conteoMensajes <= 3) {
-      await message.channel.send(textoLimpio);
+      await message.channel.send({ content: textoLimpio, files: archivosAdjuntos });
     } else {
-      await message.reply(textoLimpio);
+      await message.reply({ content: textoLimpio, files: archivosAdjuntos });
     }
   }
 });
