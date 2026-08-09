@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
-// Registro interno de logs para el Dashboard
+// Logs del sistema para el Dashboard Web
 const systemLogs = [];
 function logEvent(msg) {
   const timestamp = new Date().toLocaleTimeString();
@@ -13,14 +13,14 @@ function logEvent(msg) {
   if (systemLogs.length > 30) systemLogs.pop();
 }
 
-// Carga la instrucción de sistema desde el archivo txt independiente
+// Carga de instrucciones de personalidad
 function cargarSystemInstruction() {
   try {
     const filePath = path.join(__dirname, 'system_instruction.txt');
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     logEvent('Error al cargar system_instruction.txt');
-    return 'Eres Klint, un usuario casual de Discord. Respuestas cortas, fluidas y espontáneas.';
+    return 'Eres Klint. Habla casual, respuestas muy cortas e informales.';
   }
 }
 
@@ -33,7 +33,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Middleware de verificación para la clave 'saidkey'
+// Middleware de autenticación con 'saidkey'
 function validarKey(req, res, next) {
   const { key } = req.body;
   const claveCorrecta = process.env.saidkey || process.env.SAIDKEY;
@@ -45,62 +45,29 @@ function validarKey(req, res, next) {
 }
 
 // Endpoints del Dashboard
-app.post('/api/login', validarKey, (req, res) => {
-  res.json({ success: true });
-});
-
+app.post('/api/login', validarKey, (req, res) => res.json({ success: true }));
 app.post('/api/stats', validarKey, (req, res) => {
-  res.json({
-    guilds: client.guilds.cache.size,
-    ping: client.ws.ping
-  });
+  res.json({ guilds: client.guilds.cache.size, ping: client.ws.ping });
 });
-
-app.post('/api/get-prompt', validarKey, (req, res) => {
-  res.json({ prompt: cargarSystemInstruction() });
-});
-
+app.post('/api/get-prompt', validarKey, (req, res) => res.json({ prompt: cargarSystemInstruction() }));
 app.post('/api/save-prompt', validarKey, (req, res) => {
   try {
-    const { prompt } = req.body;
-    fs.writeFileSync(path.join(__dirname, 'system_instruction.txt'), prompt, 'utf8');
-    logEvent('Instrucciones de personalidad actualizadas desde el Dashboard');
+    fs.writeFileSync(path.join(__dirname, 'system_instruction.txt'), req.body.prompt, 'utf8');
+    logEvent('Instrucciones de personalidad actualizadas.');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'No se pudo guardar el archivo' });
   }
 });
-
-app.post('/api/get-logs', validarKey, (req, res) => {
-  res.json({ logs: systemLogs });
-});
-
+app.post('/api/get-logs', validarKey, (req, res) => res.json({ logs: systemLogs }));
 app.post('/api/force-status', validarKey, async (req, res) => {
   await actualizarEstadoIA();
   res.json({ success: true });
 });
 
-app.post('/api/send-message', validarKey, async (req, res) => {
-  try {
-    const { channelId, message } = req.body;
-    const channel = await client.channels.fetch(channelId);
-    if (channel) {
-      await channel.send(message);
-      logEvent(`Mensaje enviado vía Dashboard al canal ${channelId}`);
-      res.json({ success: true });
-    } else {
-      res.status(400).json({ error: 'Canal no encontrado' });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+app.listen(PORT, () => logEvent(`Servidor HTTP activo en puerto ${PORT}`));
 
-app.listen(PORT, () => {
-  logEvent(`Servidor HTTP activo en puerto ${PORT}`);
-});
-
-// Auto-ping para Render Free Tier
+// Auto-ping
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -108,7 +75,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Client de Discord con los Intents necesarios
+// Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -134,13 +101,9 @@ const commands = [
 
 client.once('clientReady', async () => {
   logEvent(`Klint ha iniciado sesión como ${client.user.tag}`);
-
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands }
-    );
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     logEvent('Comandos /klint registrados correctamente.');
   } catch (error) {
     logEvent(`Error al registrar comandos slash: ${error.message}`);
@@ -148,17 +111,16 @@ client.once('clientReady', async () => {
 
   await actualizarEstadoIA();
   programarCambioEstadoRandom();
-  iniciarBucleInactividad();
 });
 
-// Lista de modelos con fallback automático
+// Modelos Gemini
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 ];
 
-async function consultarGeminiMultimodelo(parts) {
+async function consultarGemini(parts, maxTokens = 120) {
   let ultimoError = null;
 
   for (const endpoint of MODELOS_FALLBACK) {
@@ -167,7 +129,12 @@ async function consultarGeminiMultimodelo(parts) {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts }] })
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: {
+            maxOutputTokens: maxTokens
+          }
+        })
       });
 
       const data = await response.json();
@@ -180,18 +147,84 @@ async function consultarGeminiMultimodelo(parts) {
     }
   }
 
-  throw new Error(`Todos los modelos fallaron. Último error: ${ultimoError}`);
+  throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Generación autónoma de presencia
-async function actualizarEstadoIA(peticionManual = null) {
-  try {
-    let promptEstado = 'Genera un estado muy corto para Discord (máximo 4 palabras) de algo que diría o haría un usuario de internet. Solo el texto sin comillas.';
-    if (peticionManual) {
-      promptEstado = `Genera un estado corto de Discord basado en esta solicitud: ${peticionManual}. Máximo 4 palabras, solo el texto.`;
-    }
+// Funciones REST para Firebase Realtime Database
+async function obtenerMemoriaUsuario(userId) {
+  const dbUrl = process.env.FIREBASE_DATABASE_URL;
+  if (!dbUrl || !dbUrl.startsWith('http')) {
+    logEvent('FIREBASE_DATABASE_URL no configurada o inválida.');
+    return null;
+  }
 
-    const textoGenerado = await consultarGeminiMultimodelo([{ text: promptEstado }]);
+  try {
+    const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
+    const res = await fetch(`${cleanUrl}usuarios/${userId}.json`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    logEvent(`Error leyendo Firebase: ${err.message}`);
+  }
+  return null;
+}
+
+async function guardarMemoriaUsuario(userId, mensaje, resumen) {
+  const dbUrl = process.env.FIREBASE_DATABASE_URL;
+  if (!dbUrl || !dbUrl.startsWith('http')) {
+    logEvent('Error: FIREBASE_DATABASE_URL debe ser una URL que comience con https://');
+    return;
+  }
+
+  try {
+    const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
+    const resPush = await fetch(`${cleanUrl}usuarios/${userId}/memorias.json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mensaje: mensaje,
+        resumen: resumen,
+        fecha: new Date().toISOString()
+      })
+    });
+
+    if (resPush.ok) {
+      logEvent(`[Firebase] Memoria guardada correctamente para usuario ${userId}`);
+    } else {
+      const errData = await resPush.text();
+      logEvent(`[Firebase Error] Código ${resPush.status}: ${errData}`);
+    }
+  } catch (err) {
+    logEvent(`Error conectando a Firebase: ${err.message}`);
+  }
+}
+
+// Analizador en segundo plano para memoria de Firebase
+async function evaluarYGuardarMemoria(userId, mensajeUsuario) {
+  try {
+    const promptEvaluacion = `Analiza si este mensaje enviado por un usuario contiene información personal importante, gustos, secretos o datos clave que valga la pena recordar a futuro.
+MENSAJE: "${mensajeUsuario}"
+
+Si NO contiene nada relevante de valor personal, responde ÚNICAMENTE con la palabra: NO.
+Si SÍ contiene datos importantes a recordar, responde con una sola línea corta que resuma el dato personal a guardar.`;
+
+    const resultado = await consultarGemini([{ text: promptEvaluacion }], 80);
+    const textoRespuesta = resultado.trim();
+
+    if (textoRespuesta && !textoRespuesta.toUpperCase().startsWith('NO')) {
+      await guardarMemoriaUsuario(userId, mensajeUsuario, textoRespuesta);
+    }
+  } catch (err) {
+    logEvent(`Error evaluando memoria: ${err.message}`);
+  }
+}
+
+// Generación de estado para Klint
+async function actualizarEstadoIA() {
+  try {
+    const promptEstado = 'Escribe un estado super corto de Discord (máximo 4 palabras) de algo que diría un usuario casual. Solo el texto sin comillas.';
+    const textoGenerado = await consultarGemini([{ text: promptEstado }], 30);
     const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'modo chill';
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
@@ -201,7 +234,6 @@ async function actualizarEstadoIA(peticionManual = null) {
       status: estadoAleatorio,
       activities: [{ name: textoEstado, type: ActivityType.Custom }]
     });
-    
     logEvent(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
   } catch (error) {
     logEvent(`Error al generar estado autónomo: ${error.message}`);
@@ -216,57 +248,25 @@ function programarCambioEstadoRandom() {
   }, minutosRandom * 60 * 1000);
 }
 
-function iniciarBucleInactividad() {
-  setInterval(async () => {
-    try {
-      client.guilds.cache.forEach(async (guild) => {
-        const canalTexto = guild.channels.cache.find(c => c.isTextBased() && c.permissionsFor(guild.members.me).has('SendMessages'));
-        if (!canalTexto) return;
-
-        const mensajes = await canalTexto.messages.fetch({ limit: 1 });
-        const ultimoMensaje = mensajes.first();
-
-        if (ultimoMensaje) {
-          const tiempoInactivo = Date.now() - ultimoMensaje.createdTimestamp;
-          if (tiempoInactivo > 3 * 60 * 60 * 1000) {
-            await canalTexto.sendTyping();
-            const promptBreaker = `${cargarSystemInstruction()}\nEl chat está callado hace horas. Di una sola frase muy corta y casual para romper el silencio.`;
-            const respuesta = await consultarGeminiMultimodelo([{ text: promptBreaker }]);
-            if (respuesta) {
-              await canalTexto.send(respuesta);
-              logEvent(`Klint inició conversación autónoma en ${guild.name}`);
-            }
-          }
-        }
-      });
-    } catch (e) {
-      logEvent(`Error en bucle de inactividad: ${e.message}`);
-    }
-  }, 60 * 60 * 1000);
-}
-
 async function urlToGenerativePart(url) {
   try {
     const response = await fetch(url);
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const mimeType = response.headers.get('content-type') || 'image/png';
     return {
       inline_data: {
         data: buffer.toString('base64'),
-        mime_type: mimeType
+        mime_type: response.headers.get('content-type') || 'image/png'
       }
     };
   } catch (error) {
-    logEvent(`Error procesando imagen: ${error.message}`);
     return null;
   }
 }
 
 function obtenerEstadoPersonalizadoUsuario(member) {
   if (!member || !member.presence) return 'Sin estado';
-  const pres = member.presence;
-  const customStatusActivity = pres.activities.find(a => a.type === ActivityType.Custom || a.type === 4);
+  const customStatusActivity = member.presence.activities.find(a => a.type === ActivityType.Custom || a.type === 4);
   if (customStatusActivity) {
     const textoEstado = customStatusActivity.state || customStatusActivity.name || '';
     const emojiEstado = customStatusActivity.emoji ? `${customStatusActivity.emoji.name} ` : '';
@@ -279,30 +279,36 @@ function obtenerEstadoPersonalizadoUsuario(member) {
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
-    // Reducimos el historial a los últimos 5 mensajes para evitar que arrastre patrones largos
-    const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
     
+    const mensajesPrevios = await canal.messages.fetch({ limit: 4 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuario = m.author.username;
       const contenido = m.content;
       let estadoPersonalizado = 'Sin estado';
-
-      if (m.member) {
-        estadoPersonalizado = obtenerEstadoPersonalizadoUsuario(m.member);
-      }
-
+      if (m.member) estadoPersonalizado = obtenerEstadoPersonalizadoUsuario(m.member);
       return `${usuario} [Estado: "${estadoPersonalizado}"]: ${contenido}`;
     }).join('\n');
 
-    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO SERVIDOR';
+    let contextoMemoria = '';
+    if (usuarioAutor) {
+      const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
+      if (datosFirebase && datosFirebase.memorias) {
+        const memoriasArray = Object.values(datosFirebase.memorias);
+        const ultimasMemorias = memoriasArray.slice(-4).map(m => `- ${m.resumen}`).join('\n');
+        contextoMemoria = `\nLO QUE RECUERDAS DE ESTE USUARIO DE CONVERSACIONES ANTERIORES:\n${ultimasMemorias}\n`;
+      }
+    }
+
+    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO EN SERVIDOR';
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-HISTORIAL DEL CHAT:
+${contextoMemoria}
+HISTORIAL RECIENTE DEL CHAT:
 ${historialFormateado}
 
-MENSAJE ACTUAL A RESPONDER:
+MENSAJE ACTUAL DE RESPUESTA:
 ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
@@ -316,7 +322,12 @@ ${promptUsuario}`;
       }
     }
 
-    const respuesta = await consultarGeminiMultimodelo(parts);
+    const respuesta = await consultarGemini(parts, 120);
+
+    if (usuarioAutor) {
+      evaluarYGuardarMemoria(usuarioAutor.id, promptUsuario);
+    }
+
     return respuesta || 'jaja no sé qué decir';
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`);
@@ -356,7 +367,7 @@ client.on('messageCreate', async message => {
 
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
-    await actualizarEstadoIA(message.content);
+    await actualizarEstadoIA();
     
     if (esDM) {
       await message.channel.send('listo, ya lo cambié.');
