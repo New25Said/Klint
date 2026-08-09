@@ -49,6 +49,13 @@ app.post('/api/login', validarKey, (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/stats', validarKey, (req, res) => {
+  res.json({
+    guilds: client.guilds.cache.size,
+    ping: client.ws.ping
+  });
+});
+
 app.post('/api/get-prompt', validarKey, (req, res) => {
   res.json({ prompt: cargarSystemInstruction() });
 });
@@ -73,11 +80,27 @@ app.post('/api/force-status', validarKey, async (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/send-message', validarKey, async (req, res) => {
+  try {
+    const { channelId, message } = req.body;
+    const channel = await client.channels.fetch(channelId);
+    if (channel) {
+      await channel.send(message);
+      logEvent(`Mensaje enviado vía Dashboard al canal ${channelId}`);
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ error: 'Canal no encontrado' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   logEvent(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping para mantener Render activo
+// Auto-ping
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -124,17 +147,17 @@ client.once('clientReady', async () => {
   }
 
   await actualizarEstadoIA();
-  programarSiguienteCambioEstado();
+  programarCambioEstadoRandom();
+  iniciarBucleInactividad();
 });
 
-// Lista de modelos vigentes ordenada por capacidad y disponibilidad gratuita
+// Modelos Gemini con redundancia
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 ];
 
-// Consulta a Gemini con redundancia automática entre modelos
 async function consultarGeminiMultimodelo(parts) {
   let ultimoError = null;
 
@@ -160,11 +183,14 @@ async function consultarGeminiMultimodelo(parts) {
   throw new Error(`Todos los modelos fallaron. Último error: ${ultimoError}`);
 }
 
-// Generación autónoma de presencia por la IA
-async function actualizarEstadoIA() {
+// Generación de estado autónomo en momentos impredecibles
+async function actualizarEstadoIA(peticionManual = null) {
   try {
-    const promptEstado = 'Genera un texto corto de estado para Discord de lo que estaría haciendo un usuario informal en su compu en este instante (máximo 5 palabras). Responde ÚNICAMENTE con el texto del estado.';
-    
+    let promptEstado = 'Genera un texto corto de estado para Discord de lo que estaría haciendo un usuario informal en su compu en este instante (máximo 5 palabras). Responde ÚNICAMENTE con el texto del estado.';
+    if (peticionManual) {
+      promptEstado = `Genera un estado corto de Discord basado en esta solicitud: ${peticionManual}. Máximo 5 palabras, responde solo con el estado.`;
+    }
+
     const textoGenerado = await consultarGeminiMultimodelo([{ text: promptEstado }]);
     const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'en la compu';
 
@@ -182,12 +208,44 @@ async function actualizarEstadoIA() {
   }
 }
 
-function programarSiguienteCambioEstado() {
-  const minutosAleatorios = Math.floor(Math.random() * (50 - 20 + 1)) + 20;
+// Programación a tiempos totalmente aleatorios (entre 5 y 60 minutos)
+function programarCambioEstadoRandom() {
+  const minutosRandom = Math.floor(Math.random() * (60 - 5 + 1)) + 5;
   setTimeout(async () => {
     await actualizarEstadoIA();
-    programarSiguienteCambioEstado();
-  }, minutosAleatorios * 60 * 1000);
+    programarCambioEstadoRandom();
+  }, minutosRandom * 60 * 1000);
+}
+
+// Función para revisar canales e iniciar conversación de la nada si están inactivos
+function iniciarBucleInactividad() {
+  setInterval(async () => {
+    try {
+      client.guilds.cache.forEach(async (guild) => {
+        const canalTexto = guild.channels.cache.find(c => c.isTextBased() && c.permissionsFor(guild.members.me).has('SendMessages'));
+        if (!canalTexto) return;
+
+        const mensajes = await canalTexto.messages.fetch({ limit: 1 });
+        const ultimoMensaje = mensajes.first();
+
+        if (ultimoMensaje) {
+          const tiempoInactivo = Date.now() - ultimoMensaje.createdTimestamp;
+          // Si han pasado más de 3 horas sin mensajes, Klint habla de la nada
+          if (tiempoInactivo > 3 * 60 * 60 * 1000) {
+            await canalTexto.sendTyping();
+            const promptBreaker = `${cargarSystemInstruction()}\nEl chat ha estado inactivo por varias horas. Lanza un comentario o pregunta casual e informal para romper el hielo en el servidor.`;
+            const respuesta = await consultarGeminiMultimodelo([{ text: promptBreaker }]);
+            if (respuesta) {
+              await canalTexto.send(respuesta);
+              logEvent(`Klint inició conversación por inactividad en ${guild.name}`);
+            }
+          }
+        }
+      });
+    } catch (e) {
+      logEvent(`Error en bucle de inactividad: ${e.message}`);
+    }
+  }, 60 * 60 * 1000); // Revisa cada hora
 }
 
 async function urlToGenerativePart(url) {
@@ -216,17 +274,26 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = []) {
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuario = m.author.username;
       const contenido = m.content;
-      let actividad = '';
-      if (m.member?.presence?.activities?.length) {
-        const act = m.member.presence.activities[0];
-        actividad = ` [Actividad: ${act.name}]`;
+      
+      // Captura de actividades, estado personalizado y estado de visibilidad del usuario
+      let estadoInfo = '';
+      if (m.member) {
+        const pres = m.member.presence;
+        const statusVis = pres ? pres.status : 'offline';
+        let actividadText = '';
+        
+        if (pres && pres.activities.length > 0) {
+          actividadText = pres.activities.map(a => `${a.type === ActivityType.Custom ? 'Estado' : 'Jugando/Escuchando'}: ${a.name}`).join(' | ');
+        }
+        estadoInfo = ` [Visibilidad: ${statusVis}${actividadText ? ' | ' + actividadText : ''}]`;
       }
-      return `${usuario}${actividad}: ${contenido}`;
+
+      return `${usuario}${estadoInfo}: ${contenido}`;
     }).join('\n');
 
     const promptText = `${systemInstruction}
 
-HISTORIAL RECIENTE DEL CHAT:
+HISTORIAL RECIENTE DEL CHAT (con datos de presencia y estado de usuarios):
 ${historialFormateado}
 
 PREGUNTA/MENSAJE ACTUAL A RESPONDER:
@@ -277,6 +344,14 @@ client.on('messageCreate', async message => {
   const fueMencionadoDirectamente = message.mentions.has(client.user.id);
   const contieneNombre = patronNombres.test(textoLower);
   const tieneAdjuntos = message.attachments.size > 0;
+
+  // Si le piden cambiar de estado directamente en el chat
+  if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
+    await message.channel.sendTyping();
+    await actualizarEstadoIA(message.content);
+    await message.reply('listo, ya cambié mi estado de actividad.');
+    return;
+  }
 
   if (esDM || fueMencionadoDirectamente || contieneNombre || (tieneAdjuntos && contieneNombre)) {
     await message.channel.sendTyping();
