@@ -24,6 +24,16 @@ function cargarSystemInstruction() {
   }
 }
 
+// Limpia y sanitiza la URL de Firebase
+function obtenerFirebaseUrl() {
+  let url = process.env.FIREBASE_DATABASE_URL || '';
+  url = url.trim().replace(/^["']|["']$/g, ''); // Elimina espacios y comillas
+  if (url && !url.startsWith('http')) {
+    url = `https://${url}`;
+  }
+  return url;
+}
+
 // Servidor Express
 const app = express();
 app.use(express.json());
@@ -152,7 +162,7 @@ async function consultarGemini(parts, maxTokens = 120) {
 
 // Funciones REST para Firebase Realtime Database
 async function obtenerMemoriaUsuario(userId) {
-  const dbUrl = process.env.FIREBASE_DATABASE_URL;
+  const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) {
     logEvent('FIREBASE_DATABASE_URL no configurada o inválida.');
     return null;
@@ -171,7 +181,7 @@ async function obtenerMemoriaUsuario(userId) {
 }
 
 async function guardarMemoriaUsuario(userId, mensaje, resumen) {
-  const dbUrl = process.env.FIREBASE_DATABASE_URL;
+  const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) {
     logEvent('Error: FIREBASE_DATABASE_URL debe ser una URL que comience con https://');
     return;
