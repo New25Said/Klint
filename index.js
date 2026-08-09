@@ -24,7 +24,7 @@ function cargarSystemInstruction() {
   }
 }
 
-// Extrae la URL pura de Firebase
+// Extrae la URL limpia de Firebase
 function obtenerFirebaseUrl() {
   let url = process.env.FIREBASE_DATABASE_URL || '';
   const matchMarkdown = url.match(/\((https?:\/\/[^\)]+)\)/);
@@ -149,7 +149,7 @@ async function consultarGemini(parts, maxTokens = 120) {
   throw new Error(`Error en API: ${ultimoError}`);
 }
 
-// Funciones Firebase Realtime Database
+// REST API para Firebase
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) return null;
@@ -164,51 +164,95 @@ async function obtenerMemoriaUsuario(userId) {
   return null;
 }
 
-async function guardarMemoriaUsuario(userId, mensaje, resumen) {
+// Obtener todas las personas/usuarios conocidos guardados en Firebase
+async function obtenerTodosLosUsuariosConocidos() {
+  const dbUrl = obtenerFirebaseUrl();
+  if (!dbUrl || !dbUrl.startsWith('http')) return [];
+
+  try {
+    const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
+    const res = await fetch(`${cleanUrl}usuarios.json`);
+    if (res.ok) {
+      const data = await res.json();
+      if (!data) return [];
+      
+      const listaComunidad = [];
+      for (const [id, info] of Object.entries(data)) {
+        if (info.perfil) {
+          let ultimasMemorias = '';
+          if (info.memorias) {
+            ultimasMemorias = Object.values(info.memorias).slice(-2).map(m => m.resumen).join('; ');
+          }
+          listaComunidad.push(`- ${info.perfil.username} (Apodo: ${info.perfil.displayName || info.perfil.username}, ID: <@${id}>): ${ultimasMemorias || 'Conocido en la comunidad'}`);
+        }
+      }
+      return listaComunidad;
+    }
+  } catch (err) {
+    logEvent(`Error obteniendo personas conocidas: ${err.message}`);
+  }
+  return [];
+}
+
+// Guardar o actualizar perfil y memorias de un usuario en Firebase
+async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, resumen) {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl || !dbUrl.startsWith('http')) return;
 
   try {
     const cleanUrl = dbUrl.endsWith('/') ? dbUrl : `${dbUrl}/`;
-    const resPush = await fetch(`${cleanUrl}usuarios/${userId}/memorias.json`, {
-      method: 'POST',
+    
+    // 1. Guarda o actualiza los datos básicos de la persona
+    await fetch(`${cleanUrl}usuarios/${userId}/perfil.json`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        mensaje: mensaje,
-        resumen: resumen,
-        fecha: new Date().toISOString()
+        username: username,
+        displayName: displayName,
+        ultimaConexion: new Date().toISOString()
       })
     });
 
-    if (resPush.ok) logEvent(`[Firebase] Memoria guardada para usuario ${userId}`);
+    // 2. Si hay algo nuevo que recordar, lo agrega a sus memorias
+    if (resumen) {
+      await fetch(`${cleanUrl}usuarios/${userId}/memorias.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensaje: mensaje,
+          resumen: resumen,
+          fecha: new Date().toISOString()
+        })
+      });
+      logEvent(`[Firebase] Nueva memoria guardada para ${username}`);
+    }
   } catch (err) {
-    logEvent(`Error conectando a Firebase: ${err.message}`);
+    logEvent(`Error actualizando Firebase: ${err.message}`);
   }
 }
 
-async function evaluarYGuardarMemoria(userId, mensajeUsuario) {
+async function evaluarYGuardarMemoria(user, mensajeUsuario) {
   try {
-    const promptEvaluacion = `Analiza si este mensaje enviado por un usuario contiene información personal importante, gustos o datos clave a recordar.
+    const promptEvaluacion = `Analiza si este mensaje enviado por ${user.username} contiene datos personales, gustos, anécdotas o información clave para recordar sobre él/ella.
 MENSAJE: "${mensajeUsuario}"
 
 Si NO contiene nada relevante de valor personal, responde ÚNICAMENTE: NO.
-Si SÍ contiene datos importantes, responde con una sola línea corta que resuma el dato a guardar.`;
+Si SÍ contiene datos importantes, responde con un resumen corto de una línea de lo que debes recordar de ${user.username}.`;
 
     const resultado = await consultarGemini([{ text: promptEvaluacion }], 80);
     const textoRespuesta = resultado.trim();
 
-    if (textoRespuesta && !textoRespuesta.toUpperCase().startsWith('NO')) {
-      await guardarMemoriaUsuario(userId, mensajeUsuario, textoRespuesta);
-    }
+    const resumenParaGuardar = (!textoRespuesta || textoRespuesta.toUpperCase().startsWith('NO')) ? null : textoRespuesta;
+    await actualizarPerfilYMemoria(user.id, user.username, user.displayName || user.username, mensajeUsuario, resumenParaGuardar);
   } catch (err) {
     logEvent(`Error evaluando memoria: ${err.message}`);
   }
 }
 
-// Generación autónoma de estados impredecibles
+// Generación de estado autónomo impredecible
 async function actualizarEstadoIA() {
   try {
-    const promptEstado = 'Escribe un estado super corto de Discord (máximo 4 palabras) de algo casual que diría un usuario de internet. Solo el texto sin comillas.';
+    const promptEstado = 'Escribe un estado super corto para Discord (máximo 4 palabras) de algo casual. Solo el texto sin comillas.';
     const textoGenerado = await consultarGemini([{ text: promptEstado }], 30);
     const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'modo chill';
 
@@ -225,7 +269,6 @@ async function actualizarEstadoIA() {
   }
 }
 
-// Programador con tiempos verdaderamente aleatorios (entre 8 y 40 minutos)
 function programarCambioEstadoRandom() {
   const minutosRandom = Math.floor(Math.random() * (40 - 8 + 1)) + 8;
   setTimeout(async () => {
@@ -260,12 +303,12 @@ function obtenerEstadoPersonalizadoUsuario(member) {
   return 'Sin estado';
 }
 
-// Procesar interacción con la IA evitando confusión de usuarios
+// Procesar respuesta con conocimiento global de personas de la comunidad
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     
-    // Obtener los últimos 6 mensajes del canal formateando autores de forma explícita
+    // 1. Cargar historial reciente
     const mensajesPrevios = await canal.messages.fetch({ limit: 6 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuarioNombre = m.author.username;
@@ -277,28 +320,35 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       return `[ID: ${usuarioId}] ${usuarioNombre} (Etiqueta: <@${usuarioId}>) [Estado: "${estadoPersonalizado}"]: ${contenido}`;
     }).join('\n');
 
-    let contextoMemoria = '';
+    // 2. Cargar memorias específicas de quien escribe
+    let contextoMemoriaAutor = '';
     if (usuarioAutor) {
       const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
         const ultimasMemorias = memoriasArray.slice(-4).map(m => `- ${m.resumen}`).join('\n');
-        contextoMemoria = `\nLO QUE RECUERDAS DE ESTE USUARIO DE CONVERSACIONES ANTERIORES:\n${ultimasMemorias}\n`;
+        contextoMemoriaAutor = `\nLO QUE SABES DE QUIEN TE HABLA AHORA (${usuarioAutor.username}):\n${ultimasMemorias}\n`;
       }
     }
+
+    // 3. Cargar directorio global de conocidos de la comunidad (para reconocer cuando mencionan a otros)
+    const personasConocidas = await obtenerTodosLosUsuariosConocidos();
+    const listaConocidosTexto = personasConocidas.length > 0
+      ? `\nPERSONAS CONOCIDAS EN LA COMUNIDAD (Si te preguntan o mencionan a alguien, usa esta lista):\n${personasConocidas.join('\n')}\n`
+      : '';
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO EN SERVIDOR';
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-INSTRUCCIÓN MENCIONES: Si deseas etiquetar o mencionar a un usuario en tu respuesta, usa la sintaxis exacta de Discord <@ID_DEL_USUARIO>. No escribas @Nombre.
-${contextoMemoria}
-
-HISTORIAL RECIENTE Y ORDENADO DEL CHAT:
+INSTRUCCIÓN DE MENCIONES: Si vas a nombrar o etiquetar a un usuario conocido de la comunidad, usa su código exacto de etiqueta <@ID_DEL_USUARIO>.
+${contextoMemoriaAutor}
+${listaConocidosTexto}
+HISTORIAL RECIENTE DEL CHAT:
 ${historialFormateado}
 
-MENSAJE ACTUAL DE RESPUESTA A ATENDER (Enviado por ${usuarioAutor?.username || 'Usuario'} con ID ${usuarioAutor?.id}):
+MENSAJE ACTUAL DE RESPUESTA A ATENDER (Enviado por ${usuarioAutor?.username || 'Usuario'}):
 ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
@@ -314,14 +364,15 @@ ${promptUsuario}`;
 
     const respuesta = await consultarGemini(parts, 120);
 
+    // Guardar o actualizar información en segundo plano
     if (usuarioAutor) {
-      evaluarYGuardarMemoria(usuarioAutor.id, promptUsuario);
+      evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
     }
 
-    return respuesta || 'jaja no sé qué decir';
+    return { respuesta, conteoMensajes: mensajesPrevios.size };
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`);
-    return 'me dio un lag en el cerebro, intenta de nuevo.';
+    return { respuesta: 'me dio un lag en el cerebro, intenta de nuevo.', conteoMensajes: 0 };
   }
 }
 
@@ -333,7 +384,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.deferReply();
     const pregunta = interaction.options.getString('pregunta');
     const esDM = !interaction.guild;
-    const respuesta = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user);
+    const { respuesta } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user);
     
     if (respuesta.length > 2000) {
       await interaction.editReply(respuesta.slice(0, 1995) + '...');
@@ -371,20 +422,18 @@ client.on('messageCreate', async message => {
     await message.channel.sendTyping();
     
     const adjuntosArray = Array.from(message.attachments.values());
-    const respuesta = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author);
+    const { respuesta, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author);
     
-    if (respuesta.length > 2000) {
-      if (esDM) {
-        await message.channel.send(respuesta.slice(0, 1995) + '...');
-      } else {
-        await message.reply(respuesta.slice(0, 1995) + '...');
-      }
+    const textoLimpio = respuesta.length > 2000 ? respuesta.slice(0, 1995) + '...' : respuesta;
+
+    // Regla de Respuesta:
+    // Si es DM -> Envía mensaje directo (sin citar/reply)
+    // Si hay POCOS mensajes recientes (3 o menos) -> Envía mensaje limpio al canal (sin citar/reply)
+    // Si hay MUCHOS mensajes recientes (más de 3) -> Hace reply para que no se pierda en el chat
+    if (esDM || conteoMensajes <= 3) {
+      await message.channel.send(textoLimpio);
     } else {
-      if (esDM) {
-        await message.channel.send(respuesta);
-      } else {
-        await message.reply(respuesta);
-      }
+      await message.reply(textoLimpio);
     }
   }
 });
