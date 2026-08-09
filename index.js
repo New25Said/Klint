@@ -1644,19 +1644,19 @@ function limpiarTextoIA(texto) {
 }
 
 function detectarBusquedaWeb(texto) {
-  return /\b(clin|klin|klint|klinty)\b/i.test(texto);
-    busca\s+en\s+(internet|la\s+web|google),
-    busca\s+en\s+la\s+web,
-    busca\s+online,
-    búscalo\s+en\s+internet,
-    buscalo\s+en\s+internet,
-    investiga,
-    averigua\s+en\s+internet,
-    qué\s+pasó\s+con,
-    que\s+pasó\s+con,
-    últimas\s+noticias,
-    ultimas\s+noticias,
-    noticia,
+  return /\b(
+    busca\s+en\s+(internet|la\s+web|google)|
+    busca\s+en\s+la\s+web|
+    busca\s+online|
+    búscalo\s+en\s+internet|
+    buscalo\s+en\s+internet|
+    investiga|
+    averigua\s+en\s+internet|
+    qué\s+pasó\s+con|
+    que\s+pasó\s+con|
+    últimas\s+noticias|
+    ultimas\s+noticias|
+    noticia|
     noticias
   )\b/ix.test(texto);
 }
