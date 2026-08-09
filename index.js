@@ -20,7 +20,7 @@ function cargarSystemInstruction() {
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     logEvent('Error al cargar system_instruction.txt');
-    return 'Eres Klint. Habla casual, respuestas muy cortas e informales.';
+    return 'Eres Klint. Habla casual en minúsculas, respuestas super cortas e informales.';
   }
 }
 
@@ -76,7 +76,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Client de Discord con TODOS los Intents de Presencia y Miembros habilitados
+// Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -121,7 +121,7 @@ const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 ];
 
-async function consultarGemini(parts, maxTokens = 120) {
+async function consultarGemini(parts, maxTokens = 100) {
   let ultimoError = null;
 
   for (const endpoint of MODELOS_FALLBACK) {
@@ -182,7 +182,7 @@ async function obtenerTodosLosUsuariosConocidos() {
           if (info.memorias) {
             ultimasMemorias = Object.values(info.memorias).slice(-2).map(m => m.resumen).join('; ');
           }
-          listaComunidad.push(`- ${info.perfil.username} (Apodo: ${info.perfil.displayName || info.perfil.username}, ID: <@${id}>): ${ultimasMemorias || 'Conocido en la comunidad'}`);
+          listaComunidad.push(`- ${info.perfil.username} (<@${id}>): ${ultimasMemorias || 'Miembro del chat'}`);
         }
       }
       return listaComunidad;
@@ -229,13 +229,11 @@ async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, 
 
 async function evaluarYGuardarMemoria(user, mensajeUsuario) {
   try {
-    const promptEvaluacion = `Analiza si este mensaje enviado por ${user.username} contiene datos personales, gustos, anécdotas o información clave para recordar sobre él/ella.
-MENSAJE: "${mensajeUsuario}"
+    const promptEvaluacion = `Analiza si este mensaje de ${user.username} contiene un dato personal clave, secreto o gusto a recordar a futuro: "${mensajeUsuario}".
+Si NO es importante responde: NO.
+Si SÍ es importante, responde un resumen super corto de una frase.`;
 
-Si NO contiene nada relevante de valor personal, responde ÚNICAMENTE: NO.
-Si SÍ contiene datos importantes, responde con un resumen corto de una línea de lo que debes recordar de ${user.username}.`;
-
-    const resultado = await consultarGemini([{ text: promptEvaluacion }], 80);
+    const resultado = await consultarGemini([{ text: promptEvaluacion }], 60);
     const textoRespuesta = resultado.trim();
 
     const resumenParaGuardar = (!textoRespuesta || textoRespuesta.toUpperCase().startsWith('NO')) ? null : textoRespuesta;
@@ -245,12 +243,16 @@ Si SÍ contiene datos importantes, responde con un resumen corto de una línea d
   }
 }
 
-// Generación autónoma de estado impredecible
-async function actualizarEstadoIA() {
+// Generación de estado impredecible y libre por la IA
+async function actualizarEstadoIA(peticionManual = null) {
   try {
-    const promptEstado = 'Escribe un estado super corto para Discord (máximo 4 palabras) de algo casual. Solo el texto sin comillas.';
-    const textoGenerado = await consultarGemini([{ text: promptEstado }], 30);
-    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'modo chill';
+    let promptEstado = 'Inventa un estado de Discord totalmente libre, divertido o aleatorio que pondría un usuario en su perfil (máximo 5 palabras). Responde ÚNICAMENTE con el texto, en minúsculas y sin comillas.';
+    if (peticionManual) {
+      promptEstado = `Genera un estado libre para Discord basado en esto: ${peticionManual}. Máximo 5 palabras, solo texto.`;
+    }
+
+    const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
+    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '').toLowerCase() || 'pensando en la nada';
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
@@ -259,14 +261,14 @@ async function actualizarEstadoIA() {
       status: estadoAleatorio,
       activities: [{ name: textoEstado, type: ActivityType.Custom }]
     });
-    logEvent(`Estado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
+    logEvent(`Estado liberado cambiado a [${estadoAleatorio}]: ${textoEstado}`);
   } catch (error) {
     logEvent(`Error al generar estado autónomo: ${error.message}`);
   }
 }
 
 function programarCambioEstadoRandom() {
-  const minutosRandom = Math.floor(Math.random() * (40 - 8 + 1)) + 8;
+  const minutosRandom = Math.floor(Math.random() * (35 - 7 + 1)) + 7;
   setTimeout(async () => {
     await actualizarEstadoIA();
     programarCambioEstadoRandom();
@@ -288,96 +290,79 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Extrae con detalle el ESTADO PERSONALIZADO (Perfil) y la ACTIVIDAD EN JUEGO/APP de un usuario
 function obtenerDetallesPresenciaCompleta(member) {
-  if (!member || !member.presence) return { customStatus: 'Sin estado personalizado', actividad: 'Ninguna' };
+  if (!member || !member.presence) return '';
 
   const pres = member.presence;
-  let customStatus = 'Sin estado personalizado';
-  let actividadesList = [];
+  let detalles = [];
 
   if (pres.activities && pres.activities.length > 0) {
     pres.activities.forEach(act => {
       if (act.type === ActivityType.Custom || act.type === 4) {
         const texto = act.state || act.name || '';
-        const emoji = act.emoji ? `${act.emoji.name} ` : '';
-        customStatus = `${emoji}${texto}`.trim() || 'Sin estado personalizado';
-      } else if (act.type === ActivityType.Playing) {
-        actividadesList.push(`Jugando a ${act.name}`);
-      } else if (act.type === ActivityType.Listening) {
-        actividadesList.push(`Escuchando ${act.name}`);
-      } else if (act.type === ActivityType.Streaming) {
-        actividadesList.push(`Transmitiendo ${act.name}`);
-      } else if (act.type === ActivityType.Watching) {
-        actividadesList.push(`Viendo ${act.name}`);
+        if (texto) detalles.push(`Estado de perfil: "${texto}"`);
+      } else if (act.name) {
+        detalles.push(`Haciendo: ${act.name}`);
       }
     });
   }
 
-  return {
-    customStatus,
-    actividad: actividadesList.length > 0 ? actividadesList.join(' | ') : 'Ninguna'
-  };
+  return detalles.length > 0 ? ` (${detalles.join(', ')})` : '';
 }
 
-// Procesar respuesta con soporte completo para Stickers, Presencia y Miembros
+// Procesar respuesta
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     
-    // 1. Obtener historial reciente
-    const mensajesPrevios = await canal.messages.fetch({ limit: 6 });
+    // 1. Historial en formato limpio
+    const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuarioNombre = m.author.username;
       const usuarioId = m.author.id;
-      const esBot = m.author.bot ? '[BOT]' : '[USUARIO]';
       let contenido = m.content;
 
-      // Detección de STICKERS de Discord
       if (m.stickers && m.stickers.size > 0) {
-        const nombresStickers = m.stickers.map(s => `[Sticker enviado: "${s.name}"]`).join(' ');
+        const nombresStickers = m.stickers.map(s => `[Sticker: ${s.name}]`).join(' ');
         contenido = `${contenido} ${nombresStickers}`.trim();
       }
 
-      // Extracción de datos de perfil y actividad
-      let presenciaInfo = { customStatus: 'Sin estado', actividad: 'Ninguna' };
+      let infoPresencia = '';
       if (m.member) {
-        presenciaInfo = obtenerDetallesPresenciaCompleta(m.member);
+        infoPresencia = obtenerDetallesPresenciaCompleta(m.member);
       }
       
-      return `${esBot} [ID: ${usuarioId}] ${usuarioNombre} (Etiqueta: <@${usuarioId}>) [Estado de Perfil: "${presenciaInfo.customStatus}"] [Actividad Actual: "${presenciaInfo.actividad}"]: ${contenido}`;
+      return `${usuarioNombre} (<@${usuarioId}>)${infoPresencia}: ${contenido}`;
     }).join('\n');
 
-    // 2. Cargar memorias específicas del usuario que escribe
+    // 2. Memorias del autor
     let contextoMemoriaAutor = '';
     if (usuarioAutor) {
       const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
-        const ultimasMemorias = memoriasArray.slice(-4).map(m => `- ${m.resumen}`).join('\n');
-        contextoMemoriaAutor = `\nLO QUE SABES DE QUIEN TE HABLA AHORA (${usuarioAutor.username}):\n${ultimasMemorias}\n`;
+        const ultimasMemorias = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
+        contextoMemoriaAutor = `\nRECUERDOS QUE TIENES DE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
       }
     }
 
-    // 3. Cargar directorio global de conocidos
+    // 3. Usuarios conocidos
     const personasConocidas = await obtenerTodosLosUsuariosConocidos();
     const listaConocidosTexto = personasConocidas.length > 0
-      ? `\nPERSONAS CONOCIDAS EN LA COMUNIDAD (Usa esta lista si preguntan por alguien):\n${personasConocidas.join('\n')}\n`
+      ? `\nCONOCIDOS DE LA COMUNIDAD:\n${personasConocidas.join('\n')}\n`
       : '';
 
-    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO EN SERVIDOR';
+    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO';
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-INSTRUCCIÓN DE STICKERS: Si en el historial ves que enviaron un [Sticker enviado: "..."], reacciona a él o coméntalo si tiene sentido en la charla.
-INSTRUCCIÓN DE MENCIONES: Usa <@ID_DEL_USUARIO> cuando etiquetes a alguien.
 ${contextoMemoriaAutor}
 ${listaConocidosTexto}
-HISTORIAL RECIENTE Y DETALLADO DEL CHAT:
+HISTORIAL DEL CHAT:
 ${historialFormateado}
 
-MENSAJE ACTUAL DE RESPUESTA A ATENDER (Enviado por ${usuarioAutor?.username || 'Usuario'}):
+MENSAJE DE ${usuarioAutor?.username || 'Usuario'} A RESPONDER:
 ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
@@ -391,7 +376,7 @@ ${promptUsuario}`;
       }
     }
 
-    const respuesta = await consultarGemini(parts, 120);
+    const respuesta = await consultarGemini(parts, 100);
 
     if (usuarioAutor) {
       evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
@@ -400,7 +385,7 @@ ${promptUsuario}`;
     return { respuesta, conteoMensajes: mensajesPrevios.size };
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`);
-    return { respuesta: 'me dio un lag en el cerebro, intenta de nuevo.', conteoMensajes: 0 };
+    return { respuesta: 'me dio un lag xd', conteoMensajes: 0 };
   }
 }
 
@@ -437,12 +422,12 @@ client.on('messageCreate', async message => {
 
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
-    await actualizarEstadoIA();
+    await actualizarEstadoIA(message.content);
     
     if (esDM) {
-      await message.channel.send('listo, ya lo cambié.');
+      await message.channel.send('ya lo cambié xd');
     } else {
-      await message.reply('listo, ya lo cambié.');
+      await message.reply('ya lo cambié xd');
     }
     return;
   }
