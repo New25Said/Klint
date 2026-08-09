@@ -20,7 +20,7 @@ function cargarSystemInstruction() {
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     logEvent('Error al cargar system_instruction.txt');
-    return 'Eres Klint, un usuario con total libertad y autonomía en Discord. Habla casual y espontáneo.';
+    return 'Eres Klint, un usuario casual de Discord. Respuestas cortas, fluidas y espontáneas.';
   }
 }
 
@@ -100,7 +100,7 @@ app.listen(PORT, () => {
   logEvent(`Servidor HTTP activo en puerto ${PORT}`);
 });
 
-// Auto-ping
+// Auto-ping para Render Free Tier
 const RENDER_URL = 'https://klint-gxww.onrender.com';
 setInterval(() => {
   fetch(RENDER_URL)
@@ -108,7 +108,7 @@ setInterval(() => {
     .catch((err) => console.error('Error en self-ping:', err));
 }, 10 * 60 * 1000);
 
-// Inicialización de Discord Client con intents completos para lectura de presencia/estado
+// Client de Discord con los Intents necesarios
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -151,7 +151,7 @@ client.once('clientReady', async () => {
   iniciarBucleInactividad();
 });
 
-// Modelos Gemini con redundancia
+// Lista de modelos con fallback automático
 const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
@@ -183,16 +183,16 @@ async function consultarGeminiMultimodelo(parts) {
   throw new Error(`Todos los modelos fallaron. Último error: ${ultimoError}`);
 }
 
-// Generación de estado autónomo para Klint en momentos impredecibles
+// Generación autónoma de presencia
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    let promptEstado = 'Escribe un texto corto de estado para Discord de lo que estaría haciendo o pensando un usuario informal en su PC en este instante (máximo 5 palabras). Responde ÚNICAMENTE con el texto del estado.';
+    let promptEstado = 'Genera un estado muy corto para Discord (máximo 4 palabras) de algo que diría o haría un usuario de internet. Solo el texto sin comillas.';
     if (peticionManual) {
-      promptEstado = `Genera un estado corto de Discord basado en esta solicitud: ${peticionManual}. Máximo 5 palabras, responde solo con el texto.`;
+      promptEstado = `Genera un estado corto de Discord basado en esta solicitud: ${peticionManual}. Máximo 4 palabras, solo el texto.`;
     }
 
     const textoGenerado = await consultarGeminiMultimodelo([{ text: promptEstado }]);
-    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'en la compu';
+    const textoEstado = textoGenerado.trim().replace(/^["']|["']$/g, '') || 'modo chill';
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
     const estadoAleatorio = estadosVisibilidad[Math.floor(Math.random() * estadosVisibilidad.length)];
@@ -209,7 +209,7 @@ async function actualizarEstadoIA(peticionManual = null) {
 }
 
 function programarCambioEstadoRandom() {
-  const minutosRandom = Math.floor(Math.random() * (45 - 5 + 1)) + 5;
+  const minutosRandom = Math.floor(Math.random() * (45 - 10 + 1)) + 10;
   setTimeout(async () => {
     await actualizarEstadoIA();
     programarCambioEstadoRandom();
@@ -230,7 +230,7 @@ function iniciarBucleInactividad() {
           const tiempoInactivo = Date.now() - ultimoMensaje.createdTimestamp;
           if (tiempoInactivo > 3 * 60 * 60 * 1000) {
             await canalTexto.sendTyping();
-            const promptBreaker = `${cargarSystemInstruction()}\nEl chat está inactivo hace horas. Lanza un comentario o pensamiento casual e informal de forma totalmente libre para romper el silencio.`;
+            const promptBreaker = `${cargarSystemInstruction()}\nEl chat está callado hace horas. Di una sola frase muy corta y casual para romper el silencio.`;
             const respuesta = await consultarGeminiMultimodelo([{ text: promptBreaker }]);
             if (respuesta) {
               await canalTexto.send(respuesta);
@@ -263,58 +263,46 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// Extrae con precisión el ESTADO PERSONALIZADO (Custom Status) escrito por el usuario
 function obtenerEstadoPersonalizadoUsuario(member) {
-  if (!member || !member.presence) return 'Sin estado personalizado';
-
+  if (!member || !member.presence) return 'Sin estado';
   const pres = member.presence;
-  // Buscar la actividad de tipo Custom (tipo 4 en Discord API)
   const customStatusActivity = pres.activities.find(a => a.type === ActivityType.Custom || a.type === 4);
-
   if (customStatusActivity) {
-    // En Discord API, el texto del estado personalizado se almacena en 'state'
     const textoEstado = customStatusActivity.state || customStatusActivity.name || '';
     const emojiEstado = customStatusActivity.emoji ? `${customStatusActivity.emoji.name} ` : '';
-    return `${emojiEstado}${textoEstado}`.trim() || 'Sin estado personalizado';
+    return `${emojiEstado}${textoEstado}`.trim() || 'Sin estado';
   }
-
-  return 'Sin estado personalizado';
+  return 'Sin estado';
 }
 
 // Procesar interacción con la IA
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
-    const mensajesPrevios = await canal.messages.fetch({ limit: 10 });
+    // Reducimos el historial a los últimos 5 mensajes para evitar que arrastre patrones largos
+    const mensajesPrevios = await canal.messages.fetch({ limit: 5 });
     
     const historialFormateado = mensajesPrevios.reverse().map(m => {
       const usuario = m.author.username;
       const contenido = m.content;
-      let estadoPersonalizado = 'Sin estado personalizado';
+      let estadoPersonalizado = 'Sin estado';
 
       if (m.member) {
         estadoPersonalizado = obtenerEstadoPersonalizadoUsuario(m.member);
       }
 
-      return `${usuario} [Estado Personalizado de Perfil: "${estadoPersonalizado}"]: ${contenido}`;
+      return `${usuario} [Estado: "${estadoPersonalizado}"]: ${contenido}`;
     }).join('\n');
 
-    const tipoEntorno = esDM ? 'MENSAJE PRIVADO DIRECTO (DM)' : 'CHAT PÚBLICO DE SERVIDOR';
-    
-    let infoAutorDM = '';
-    if (esDM && usuarioAutor) {
-      infoAutorDM = `USUARIO EN DM: ${usuarioAutor.username}`;
-    }
+    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM)' : 'CHAT PÚBLICO SERVIDOR';
 
     const promptText = `${systemInstruction}
 
-ENTORNO ACTUAL: ${tipoEntorno}
-${infoAutorDM}
-
-HISTORIAL RECIENTE DEL CHAT (con los Estados Personalizados que cada usuario configuró en su perfil de Discord):
+ENTORNO: ${tipoEntorno}
+HISTORIAL DEL CHAT:
 ${historialFormateado}
 
-MENSAJE ACTUAL A ATENDER:
+MENSAJE ACTUAL A RESPONDER:
 ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
@@ -329,10 +317,10 @@ ${promptUsuario}`;
     }
 
     const respuesta = await consultarGeminiMultimodelo(parts);
-    return respuesta || 'banco de memoria vacío, no sé qué decir jsjs';
+    return respuesta || 'jaja no sé qué decir';
   } catch (error) {
     logEvent(`Error en procesarRespuestaIA: ${error.message}`);
-    return 'me dio un lag en el cerebro, intenta de nuevo en un rato.';
+    return 'me dio un lag en el cerebro, intenta de nuevo.';
   }
 }
 
@@ -366,16 +354,14 @@ client.on('messageCreate', async message => {
   const contieneNombre = patronNombres.test(textoLower);
   const tieneAdjuntos = message.attachments.size > 0;
 
-  // Si le piden cambiar su estado directamente en el chat
   if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
     await message.channel.sendTyping();
     await actualizarEstadoIA(message.content);
     
-    // Si es DM envía mensaje normal sin linkear/citar el mensaje original
     if (esDM) {
-      await message.channel.send('listo, ya cambié mi estado.');
+      await message.channel.send('listo, ya lo cambié.');
     } else {
-      await message.reply('listo, ya cambié mi estado.');
+      await message.reply('listo, ya lo cambié.');
     }
     return;
   }
@@ -386,7 +372,6 @@ client.on('messageCreate', async message => {
     const adjuntosArray = Array.from(message.attachments.values());
     const respuesta = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author);
     
-    // Regla DM: Si es chat privado (DM) envía como mensaje independiente sin citar/reply
     if (respuesta.length > 2000) {
       if (esDM) {
         await message.channel.send(respuesta.slice(0, 1995) + '...');
