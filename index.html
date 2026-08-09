@@ -3,62 +3,70 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Klint AI - Panel & Universo</title>
+  <title>Klint AI - Portafolio & Dashboard</title>
   <style>
     :root {
-      --bg: #0f0f15;
-      --card-bg: #181824;
+      --bg: #090a0f;
+      --card: #12131c;
+      --border: #222436;
       --accent: #8b5cf6;
       --accent-hover: #7c3aed;
       --text: #f3f4f6;
       --muted: #9ca3af;
-      --border: #2e2e3e;
       --danger: #ef4444;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-    body { background-color: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-    .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 20px; }
+    body { background: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+    .container { width: 100%; max-width: 950px; display: flex; flex-direction: column; gap: 24px; }
 
-    header { text-align: center; margin-bottom: 10px; }
-    header h1 { font-size: 2.2rem; color: var(--accent); }
-    header p { color: var(--muted); font-size: 0.95rem; }
+    /* Header Estilo Portafolio */
+    header { text-align: center; padding: 30px 20px; background: linear-gradient(180deg, rgba(139,92,246,0.1) 0%, rgba(9,10,15,1) 100%); border-radius: 16px; border: 1px solid var(--border); }
+    header h1 { font-size: 2.8rem; font-weight: 800; color: var(--accent); margin-bottom: 6px; }
+    header p { color: var(--muted); font-size: 1.1rem; }
 
-    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-    .card h2 { font-size: 1.25rem; margin-bottom: 12px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+    .card h2 { font-size: 1.3rem; margin-bottom: 14px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; }
 
-    .lore-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px; }
-    .lore-item { background: #11111a; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.9rem; }
-    .lore-item strong { color: var(--accent); display: block; margin-bottom: 4px; }
+    /* Grid del Portafolio de Funciones */
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 15px; }
+    .feature-item { background: #0b0c12; border: 1px solid var(--border); padding: 16px; border-radius: 10px; }
+    .feature-item h3 { font-size: 1rem; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .feature-item p { font-size: 0.88rem; color: var(--muted); line-height: 1.4; }
 
-    .login-box { display: flex; gap: 10px; margin-bottom: 10px; }
+    /* Biografía */
+    .bio-box { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .bio-item { background: #0b0c12; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.9rem; }
+    .bio-item strong { color: var(--accent); display: block; margin-bottom: 4px; }
+
+    /* Form y Botones */
     input[type="password"], input[type="text"], textarea {
-      width: 100%; background: #0b0b10; border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 6px; font-size: 0.95rem; outline: none;
+      width: 100%; background: #08080c; border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 0.95rem; outline: none; transition: border 0.2s;
     }
     input:focus, textarea:focus { border-color: var(--accent); }
 
     button {
-      background: var(--accent); color: white; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s; white-space: nowrap;
+      background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background 0.2s; white-space: nowrap;
     }
     button:hover { background: var(--accent-hover); }
     button.danger { background: var(--danger); }
 
     .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
-    .stat-box { background: #12121c; padding: 15px; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
-    .stat-box span { font-size: 1.5rem; font-weight: bold; color: var(--accent); display: block; }
+    .stat-box { background: #08080c; padding: 16px; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
+    .stat-box span { font-size: 1.6rem; font-weight: bold; color: var(--accent); display: block; }
 
     textarea { height: 120px; resize: vertical; }
 
-    .logs-box { background: #09090d; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #a7f3d0; }
+    .logs-box { background: #060608; border: 1px solid var(--border); border-radius: 8px; padding: 12px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #a7f3d0; }
     .logs-box div.error { color: #fca5a5; }
 
-    /* Estilos Avanzados del Chat Web */
-    .chat-box { background: #09090d; border: 1px solid var(--border); border-radius: 6px; height: 320px; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
-    .chat-msg { max-width: 85%; padding: 10px 14px; border-radius: 8px; font-size: 0.95rem; line-height: 1.4; }
+    /* Chat Web Interactivo */
+    .chat-box { background: #060608; border: 1px solid var(--border); border-radius: 8px; height: 340px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+    .chat-msg { max-width: 85%; padding: 10px 14px; border-radius: 10px; font-size: 0.95rem; line-height: 1.4; }
     .chat-msg.user { background: var(--accent); color: white; align-self: flex-end; }
-    .chat-msg.bot { background: #262636; color: var(--text); align-self: flex-start; }
+    .chat-msg.bot { background: #1c1d2b; color: var(--text); align-self: flex-start; }
     
-    .chat-media { margin-top: 8px; max-width: 100%; border-radius: 6px; border: 1px solid var(--border); }
+    .chat-media { margin-top: 8px; max-width: 100%; max-height: 220px; border-radius: 8px; border: 1px solid var(--border); object-fit: contain; }
     audio { margin-top: 8px; width: 100%; height: 36px; }
 
     .chat-controls { display: flex; flex-direction: column; gap: 8px; }
@@ -69,78 +77,111 @@
 <body>
 
   <div class="container">
+    
+    <!-- Hero / Header -->
     <header>
-      <h1>Mundo de Klint (Clin)</h1>
-      <p>Universo Oficial, Inteligencia y Panel de Control</p>
+      <h1>Portafolio de Klint AI</h1>
+      <p>Bot Autónomo Inteligente para Discord & Web</p>
     </header>
 
-    <!-- Información y Lore del Universo de Klint -->
+    <!-- Ficha del Personaje (Biografía y Lore) -->
     <div class="card">
-      <h2>Biografía & Lore del Bot</h2>
-      <div class="lore-grid">
-        <div class="lore-item">
-          <strong>Origen & Creador</strong>
-          Diseñado por Said Sandoval (Sa1xp / S41d_03) como un usuario casual y autónomo de Discord.
+      <h2>Biografía & Identidad</h2>
+      <div class="bio-box">
+        <div class="bio-item">
+          <strong>Creador Principal</strong>
+          Said Sandoval (Sa1xp / S41d_03).
         </div>
-        <div class="lore-item">
-          <strong>Ubicación & Creencia</strong>
-          Proveniente de Piura (Perú) y creyente en Dios.
+        <div class="bio-item">
+          <strong>Origen & Creencia</strong>
+          De Piura, Perú. Creyente en Dios.
         </div>
-        <div class="lore-item">
-          <strong>Idiomas</strong>
-          Habla español, quechua y yucateco antiguo.
+        <div class="bio-item">
+          <strong>Idiomas Soportados</strong>
+          Español casual, quechua y yucateco.
         </div>
-        <div class="lore-item">
-          <strong>Parientes de Código</strong>
+        <div class="bio-item">
+          <strong>Genealogía de Código</strong>
           Ultron es su primo directo.
         </div>
       </div>
     </div>
 
-    <!-- Autenticación Admin -->
+    <!-- Muestra de Capacidades (Portafolio de Funciones) -->
+    <div class="card">
+      <h2>Portafolio de Capacidades</h2>
+      <div class="features-grid">
+        <div class="feature-item">
+          <h3>🎙️ Respuestas en Notas de Voz</h3>
+          <p>Generación nativa de voz sintetizada en archivos MP3 enviados directamente al canal.</p>
+        </div>
+        <div class="feature-item">
+          <h3>🖼️ Generador de Memes e Imágenes</h3>
+          <p>Motor de generación de memes basado en plantillas dinámicas con texto personalizado.</p>
+        </div>
+        <div class="feature-item">
+          <h3>🎞️ Motor GIF Integrado</h3>
+          <p>Búsqueda e inserción directa de hasta 2 GIFs reales por interacción mediante Tenor.</p>
+        </div>
+        <div class="feature-item">
+          <h3>👀 Lectura de Presencia en Tiempo Real</h3>
+          <p>Sincronización con estados personalizados de usuario, partidas de juego y Spotify.</p>
+        </div>
+        <div class="feature-item">
+          <h3>🧠 Memoria Persistente</h3>
+          <p>Guarda recuerdos, gustos y secretos de los usuarios mediante base de datos Firebase.</p>
+        </div>
+        <div class="feature-item">
+          <h3>⚡ Estados de Perfil Dinámicos</h3>
+          <p>Cambios de presencia aleatorios con frases casuales autogeneradas.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel de Administración -->
     <div class="card">
       <h2>Acceso Administrador</h2>
-      <div class="login-box">
+      <div class="chat-input-row" style="margin-bottom: 10px;">
         <input type="password" id="authKey" placeholder="Ingresa la clave de acceso (saidkey)...">
         <button onclick="loginAdmin()">Ingresar</button>
       </div>
       <p id="loginStatus" class="status-msg"></p>
     </div>
 
-    <!-- Panel Admin Protegido -->
+    <!-- Área de Control Protegida -->
     <div id="adminPanel" style="display: none;" class="card">
-      <h2>Estadísticas & Acciones Directas</h2>
+      <h2>Panel de Control en Vivo</h2>
       <div class="grid-stats" style="margin-bottom: 15px;">
-        <div class="stat-box">Servidores en Vivo: <span id="statGuilds">-</span></div>
-        <div class="stat-box">Ping Websocket: <span id="statPing">-</span></div>
+        <div class="stat-box">Servidores Conectados: <span id="statGuilds">-</span></div>
+        <div class="stat-box">Latencia Websocket: <span id="statPing">-</span></div>
       </div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button onclick="forzarEstado()">Cambiar Estado Ahora</button>
-        <button class="danger" onclick="triggerDeploy()">Re-desplegar Servidor (Deploy Hook)</button>
+        <button onclick="forzarEstado()">Actualizar Estado Ahora</button>
+        <button class="danger" onclick="triggerDeploy()">Forzar Re-deploy (Render)</button>
       </div>
 
-      <h2 style="margin-top: 20px;">System Instruction (Instrucciones)</h2>
+      <h2 style="margin-top: 20px;">Instrucciones del Sistema (Prompt)</h2>
       <textarea id="promptText" placeholder="Cargando instrucciones..."></textarea>
-      <button onclick="guardarPrompt()" style="margin-top: 10px;">Guardar Instrucciones</button>
+      <button onclick="guardarPrompt()" style="margin-top: 10px;">Guardar Cambios</button>
 
       <h2 style="margin-top: 20px;">Logs del Sistema</h2>
-      <div id="logsContainer" class="logs-box">Cargando logs...</div>
+      <div id="logsContainer" class="logs-box">Cargando consola...</div>
     </div>
 
-    <!-- Chat Web Interactivo de Prueba (Imágenes, GIFs, Audios) -->
+    <!-- Chat Web de Prueba Interactivo -->
     <div class="card">
       <h2>
-        Chat de Prueba con Klint
+        Chat Web de Prueba
         <span id="chatCounter" style="font-size: 0.85rem; color: var(--muted);">Mensajes restantes: 15</span>
       </h2>
       <div id="chatMessages" class="chat-box">
-        <div class="chat-msg bot">¡habla mano! soy klint. puedes probarme aquí enviando texto, pidiendo un meme, un gif, o pidiéndome un audio para escucharme hablar.</div>
+        <div class="chat-msg bot">¡habla mano! soy klint. prueba cualquier función aquí: pídeme un meme, hasta 2 gifs, o pídeme "manda un audio".</div>
       </div>
       
       <div class="chat-controls">
-        <input type="text" id="webImgInput" placeholder="URL opcional de imagen para que la IA la analice (http...)" style="font-size: 0.85rem; padding: 6px 10px;">
+        <input type="text" id="webImgInput" placeholder="URL de imagen opcional para que la IA la analice..." style="font-size: 0.85rem;">
         <div class="chat-input-row">
-          <input type="text" id="webMsgInput" placeholder="Escribe 'manda un gif', 'haz un meme' o 'manda un audio'..." onkeypress="handleEnter(event)">
+          <input type="text" id="webMsgInput" placeholder="Escribe un mensaje, 'manda un gif' o 'manda un audio'..." onkeypress="handleEnter(event)">
           <button onclick="enviarMensajeWeb()">Enviar</button>
         </div>
       </div>
@@ -244,7 +285,6 @@
       }
     }
 
-    // Lógica avanzada del Chat Web
     async function enviarMensajeWeb() {
       const input = document.getElementById('webMsgInput');
       const imgInput = document.getElementById('webImgInput');
@@ -263,7 +303,7 @@
 
       const chatBox = document.getElementById('chatMessages');
       
-      let userHtml = `<div class="chat-msg user">${text || 'Mira esta imagen'}</div>`;
+      let userHtml = `<div class="chat-msg user">${text || 'Analizar imagen'}</div>`;
       if (imageUrl) {
         userHtml += `<img src="${imageUrl}" class="chat-media">`;
       }
@@ -286,8 +326,10 @@
         if (data.memeImagenUrl) {
           botHtml += `<br><img src="${data.memeImagenUrl}" class="chat-media">`;
         }
-        if (data.gifUrl) {
-          botHtml += `<br><img src="${data.gifUrl}" class="chat-media">`;
+        if (data.gifsUrls && data.gifsUrls.length > 0) {
+          data.gifsUrls.forEach(url => {
+            botHtml += `<br><img src="${url}" class="chat-media">`;
+          });
         }
         if (data.audioUrl) {
           botHtml += `<br><audio controls autoplay src="${data.audioUrl}"></audio>`;
