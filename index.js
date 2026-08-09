@@ -169,19 +169,20 @@ async function consultarGemini(parts, maxTokens = 120) {
 }
 
 // Búsqueda de GIF con múltiples fallbacks (Tenor + Giphy) y reporte de errores
+// Búsqueda de GIF con enlace multimedia directo (.gif)
 async function buscarGifReal(busqueda) {
   const termino = busqueda || 'funny meme';
   
-  // Intento 1: API de Tenor (Google)
+  // Intento 1: API de Tenor con clave de cliente de Discord oficial (extrae el archivo .gif directo)
   try {
-    const urlTenor = `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=8`;
+    const urlTenor = `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=8&client_key=discord`;
     const res = await fetch(urlTenor);
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
         const itemRandom = data.results[Math.floor(Math.random() * data.results.length)];
-        const gifUrl = itemRandom.media_formats?.gif?.url || itemRandom.url;
-        if (gifUrl) return gifUrl;
+        const gifDirecto = itemRandom.media_formats?.gif?.url || itemRandom.media_formats?.mediumgif?.url;
+        if (gifDirecto) return gifDirecto;
       }
     } else {
       logEvent(`Tenor API devolvió HTTP ${res.status}`, true);
@@ -190,7 +191,7 @@ async function buscarGifReal(busqueda) {
     logEvent(`Error al consultar Tenor API: ${err.message}`, true);
   }
 
-  // Intento 2: API de Giphy (Beta Key)
+  // Intento 2: Giphy API pública
   try {
     const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=GlV1GwO535PGE2GLdQ389B3A2C42Bch1&q=${encodeURIComponent(termino)}&limit=8&rating=g`;
     const res = await fetch(urlGiphy);
@@ -207,9 +208,8 @@ async function buscarGifReal(busqueda) {
     logEvent(`Error al consultar Giphy API: ${err.message}`, true);
   }
 
-  // Fallback 3: Generación de enlace directo a Tenor Embed
-  logEvent(`Se utilizó fallback URL directo para el GIF: "${termino}"`);
-  return `https://tenor.com/search/${encodeURIComponent(termino)}-gifs`;
+  // Fallback 3: GIF directo de respaldo si las APIs no responden
+  return 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbm95enA1aGdxeGszbmd6bm03eHkzaGV6bXk4bmtxZXZkZnl0NXl6ciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/L1R1tvI9sv3y0/giphy.gif';
 }
 
 // Generador de Memes en Imagen Real
