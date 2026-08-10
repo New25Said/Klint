@@ -88,7 +88,7 @@ app.get('/api/tts', async (req, res) => {
   if (!text) return res.status(400).send('Sin texto');
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  // Usar voz gratuita garantizada 'Rachel' (21m00Tcm4TlvDq8ikWAM)
+  // Voz gratuita garantizada 'Rachel' (21m00Tcm4TlvDq8ikWAM)
   const voiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 
   if (!apiKey) {
@@ -734,13 +734,16 @@ async function obtenerDetallesIntegrantesServidor(guild) {
   }
 }
 
-// Procesar respuesta de la IA
+// Procesar respuesta de la IA (Conciencia propia + Múltiples mensajes)
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     
     const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
     const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
+    
+    // Conciencia de su propio estado en Discord
+    const estadoActualKlint = client.user?.presence?.activities?.[0]?.name || 'sin estado definido';
 
     let historialFormateado = '';
     let conteoPrevio = 0;
@@ -790,6 +793,14 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
+TU ESTADO ACTUAL PUESTO EN DISCORD: "${estadoActualKlint}" (si te preguntan qué haces o tu estado, eres consciente de que tienes este estado puesto en Discord).
+ESTATUS DE FUNCIONES CONECTADAS:
+- Audio/TTS: ${featureToggles.audio ? 'Activo' : 'Inactivo'}
+- Memes: ${featureToggles.memes ? 'Activo' : 'Inactivo'}
+- GIFs: ${featureToggles.gifs ? 'Activo' : 'Inactivo'}
+
+REGLA DE MÚLTIPLES MENSAJES: Si te piden enviar la respuesta en 2 o más mensajes o enviar datos/gifs separados, usa "|||" como separador entre cada mensaje.
+
 DATOS DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
 INSTALACIÓN Y APPS/COMANDOS DEL SERVIDOR: Si el usuario pide invocar/usar otras apps o comandos de Discord, instrúyelo o indícale cómo activarlos.
 ${instruccionExtra}
@@ -815,7 +826,7 @@ ${promptUsuario}`;
       }
     }
 
-    let respuestaRaw = await consultarGemini(parts, 120);
+    let respuestaRaw = await consultarGemini(parts, 180);
     let respuesta = (respuestaRaw || 'aquí tienes').replace(/<[^>]*>?/gm, '').trim();
 
     let gifsUrlsEncontradas = [];
@@ -936,12 +947,18 @@ client.on('interactionCreate', async interaction => {
         if (audioBuf) archivosAdjuntos.push(new AttachmentBuilder(audioBuf, { name: 'audio_klint.mp3' }));
       }
 
-      let mensajeFinal = respuesta;
-      if (gifsUrls.length > 0) {
-        mensajeFinal = `${respuesta}\n${gifsUrls[0]}`.trim();
-      }
+      const mensajesSeparados = respuesta.split('|||').map(m => m.trim()).filter(m => m.length > 0);
+      let primerTexto = mensajesSeparados[0] || 'aquí está';
+      if (gifsUrls.length > 0) primerTexto += `\n${gifsUrls[0]}`;
 
-      await interaction.editReply({ content: mensajeFinal || 'aquí está', files: archivosAdjuntos });
+      await interaction.editReply({ content: primerTexto, files: archivosAdjuntos });
+
+      if (mensajesSeparados.length > 1) {
+        for (let i = 1; i < mensajesSeparados.length; i++) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          await interaction.channel.send(mensajesSeparados[i]);
+        }
+      }
     }
 
     if (interaction.commandName === 'status') {
@@ -1087,23 +1104,44 @@ client.on('messageCreate', async message => {
         if (audioBuf) archivosAdjuntos.push(new AttachmentBuilder(audioBuf, { name: 'audio_klint.mp3' }));
       }
 
-      let textoFinal = respuesta;
-      let gifParaEnviar = gifsUrls.length > 0 ? gifsUrls[0] : null;
+      // Separar por '|||' para soportar mensajes múltiples sin linkear
+      let mensajesSeparados = respuesta.split('|||').map(m => m.trim()).filter(m => m.length > 0);
+      if (mensajesSeparados.length === 0) mensajesSeparados = ['aquí tienes'];
 
-      if (gifParaEnviar) {
-        textoFinal = `${respuesta}\n${gifParaEnviar}`.trim();
-      }
+      if (mensajesSeparados.length > 1) {
+        let primerTexto = mensajesSeparados[0];
+        if (gifsUrls.length > 0) primerTexto += `\n${gifsUrls[0]}`;
 
-      const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
-      const contenidoMensaje = textoLimpio || (archivosAdjuntos.length > 0 ? 'aquí tienes' : 'xd');
+        if (esDM || conteoMensajes <= 3) {
+          await message.channel.send({ content: primerTexto, files: archivosAdjuntos });
+        } else {
+          await message.reply({ content: primerTexto, files: archivosAdjuntos });
+        }
 
-      if (esDM || conteoMensajes <= 3) {
-        await message.channel.send({ content: contenidoMensaje, files: archivosAdjuntos });
+        // Mensajes adicionales independientes (no enlazados)
+        for (let i = 1; i < mensajesSeparados.length; i++) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          await message.channel.send(mensajesSeparados[i]);
+        }
       } else {
-        await message.reply({ content: contenidoMensaje, files: archivosAdjuntos });
+        let textoFinal = respuesta;
+        let gifParaEnviar = gifsUrls.length > 0 ? gifsUrls[0] : null;
+
+        if (gifParaEnviar) {
+          textoFinal = `${respuesta}\n${gifParaEnviar}`.trim();
+        }
+
+        const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
+        const contenidoMensaje = textoLimpio || (archivosAdjuntos.length > 0 ? 'aquí tienes' : 'xd');
+
+        if (esDM || conteoMensajes <= 3) {
+          await message.channel.send({ content: contenidoMensaje, files: archivosAdjuntos });
+        } else {
+          await message.reply({ content: contenidoMensaje, files: archivosAdjuntos });
+        }
       }
 
-      if (/\b(dos mensajes|envia otro|manda otra cosa|segundo mensaje)\b/i.test(message.content)) {
+      if (/\b(dos mensajes|envia otro|manda otra cosa|segundo mensaje)\b/i.test(message.content) && mensajesSeparados.length === 1) {
         setTimeout(async () => {
           await message.channel.send('y por cierto, aquí está lo otro que me pediste pe xd');
         }, 1500);
