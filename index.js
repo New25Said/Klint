@@ -156,7 +156,7 @@ const HERRAMIENTAS_KLINT = [
   },
   {
     name: "reaccionar_mensaje",
-    description: "Permite a Klint reaccionar con un emoji al mensaje del usuario de forma espontánea sin dejar de responder.",
+    description: "Permite a Klint reaccionar con un emoji al mensaje del usuario solo en ocasiones excepcionales y raras.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -202,7 +202,6 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
       });
       logEvent(`[AUTONOMÍA KLINT] Estado cambiado por la IA a: "${textoEstado}" (${visibilidad || 'online'})`);
       
-      // Reiniciar el temporizador aleatorio para no romper la rutina de cambios
       if (timerEstadoRandom) clearTimeout(timerEstadoRandom);
       programarCambioEstadoRandom();
 
@@ -1096,7 +1095,7 @@ ESTADO EMOCIONAL ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
 RAZONAMIENTO Y AUTONOMÍA TOTAL (CONTROL ABSOLUTO):
 Tienes herramientas para controlar totalmente tu perfil y tu código:
 - 'cambiar_estado_perfil': Puedes cambiar tu texto de perfil, estado online/dnd o actividad si así lo deseas.
-- 'reaccionar_mensaje': Puedes decidir reaccionar espontáneamente con un emoji al mensaje del usuario si así lo deseas, sin dejar de enviarle tu respuesta de texto.
+- 'reaccionar_mensaje': ÚSALO CON EXTREMA MODERACIÓN. Solo reacciona cuando el mensaje sea gracioso, raro o impactante. NO reacciones a todo mensaje.
 - 'modificar_capacidad': Puedes activar/desactivar tus funciones reales.
 - 'modificar_humor': Puedes alterar tu humor.
 - 'agregar_apodo' / 'remover_apodo': Si un usuario te propone un nuevo apodo, puedes registrarlo con 'agregar_apodo'.
@@ -1300,6 +1299,9 @@ client.on('interactionCreate', async interaction => {
       const nick = member?.displayName || user.username;
       const username = user.username;
 
+      // Obtención amplia de datos de usuario (Presencia, Actividad, Estado, etc)
+      const presenciaTexto = await obtenerPresenciaCualquierEntorno(user, interaction.guild);
+
       const datosFirebase = await obtenerMemoriaUsuario(user.id);
       let resumenMemoria = 'Sin memorias registradas.';
       if (datosFirebase && datosFirebase.memorias) {
@@ -1316,16 +1318,17 @@ client.on('interactionCreate', async interaction => {
       const archivosAdjuntos = [];
       if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
 
-      const mensajeStatus = `🤖 **PERFIL Y ESTADO DE KLINT**
+      const mensajeStatus = `🤖 **PERFIL Y FICHA DEL USUARIO**
 👤 **Usuario:** ${username} (Apodo: ${nick})
 🆔 **ID:** \`${user.id}\`
+🟢 **Presencia / Estado Actual:** ${presenciaTexto}
 
-🔥 **ESTADO EMOCIONAL CON TI:**
+🔥 **ESTADO EMOCIONAL DE KLINT CONTIGO:**
 - Enojo: ${humor.enojo}/100
 - Afecto: ${humor.afecto}/100
 - Aburrimiento: ${humor.aburrimiento}/100
 
-🗣️ **NOMBRES/APODOS ACTIVOS:**
+🗣️ **NOMBRES/APODOS REGISTRADOS:**
 ${Array.from(nombresKlint).join(', ')}
 
 🧠 **MEMORIAS GUARDADAS:**
