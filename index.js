@@ -33,7 +33,7 @@ const featureToggles = {
 process.on('unhandledRejection', (reason) => logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true));
 process.on('uncaughtException', (err) => logEvent(`Excepción no capturada: ${err.stack || err.message}`, true));
 
-// Instanciación del Cliente Discord
+// Instanciación temprana del Cliente Discord
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -71,7 +71,9 @@ const app = express();
 app.use(express.json());
 const PORT = process.env.PORT || 10000;
 
+// Rutas de Páginas
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/PDC.html', (req, res) => res.sendFile(path.join(__dirname, 'PDC.html')));
 
 function validarKey(req, res, next) {
   const { key } = req.body;
@@ -80,6 +82,7 @@ function validarKey(req, res, next) {
   else res.status(401).json({ error: 'Clave no autorizada' });
 }
 
+// Endpoints REST de la API
 app.post('/api/login', validarKey, (req, res) => res.json({ success: true }));
 app.post('/api/stats', validarKey, (req, res) => {
   const guildsCount = client.isReady() ? client.guilds.cache.size : 0;
@@ -115,7 +118,7 @@ app.post('/api/toggle-feature', validarKey, (req, res) => {
   }
 });
 
-// Obtener memorias guardadas en Firebase
+// Gestión de Memorias Firebase (Obtener, Editar, Eliminar)
 app.post('/api/get-memories', validarKey, async (req, res) => {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl) return res.json({ users: {} });
@@ -128,7 +131,23 @@ app.post('/api/get-memories', validarKey, async (req, res) => {
   }
 });
 
-// Eliminar memoria de un usuario
+app.post('/api/edit-memory', validarKey, async (req, res) => {
+  const { userId, memoryKey, newResumen } = req.body;
+  const dbUrl = obtenerFirebaseUrl();
+  if (!dbUrl) return res.status(400).json({ error: 'Sin base de datos' });
+  try {
+    await fetch(`${dbUrl}/usuarios/${userId}/memorias/${memoryKey}.json`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resumen: newResumen, fechaEditado: new Date().toISOString() })
+    });
+    logEvent(`Memoria ${memoryKey} editada para el usuario ${userId}.`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/delete-memory', validarKey, async (req, res) => {
   const { userId, memoryKey } = req.body;
   const dbUrl = obtenerFirebaseUrl();
@@ -142,7 +161,7 @@ app.post('/api/delete-memory', validarKey, async (req, res) => {
   }
 });
 
-// Enviar mensaje a un canal de Discord desde la Web
+// Enviar mensaje a Discord desde la Web
 app.post('/api/send-discord-msg', validarKey, async (req, res) => {
   const { channelId, message } = req.body;
   try {
@@ -158,14 +177,11 @@ app.post('/api/send-discord-msg', validarKey, async (req, res) => {
   }
 });
 
-// Endpoint de Reset Profundo
+// Reset Profundo y Despliegue Maestro Unificado
 app.post('/api/deep-reset', validarKey, async (req, res) => {
   logEvent('Iniciando proceso de Limpieza Profunda...');
   systemLogs = [];
-  
-  if (global.gc) {
-    try { global.gc(); } catch (e) {}
-  }
+  if (global.gc) try { global.gc(); } catch (e) {}
 
   const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
   if (deployHookUrl) {
@@ -181,6 +197,25 @@ app.post('/api/deep-reset', validarKey, async (req, res) => {
   }
 
   res.json({ success: true, message: 'Limpieza de RAM y estado completada en el servidor actual.' });
+});
+
+app.post('/api/master-reset-deploy', validarKey, async (req, res) => {
+  logEvent('Ejecutando Reset Duro, Limpieza de Cache/Logs e iniciando Re-Deploy...');
+  systemLogs = [];
+  if (global.gc) try { global.gc(); } catch (e) {}
+
+  const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
+  if (deployHookUrl) {
+    try {
+      const response = await fetch(deployHookUrl, { method: 'POST' });
+      if (response.ok) {
+        return res.json({ success: true, message: 'Purga completada y Deploy iniciado exitosamente en Render.' });
+      }
+    } catch (err) {
+      logEvent(`Error invocando Deploy Hook: ${err.message}`, true);
+    }
+  }
+  res.json({ success: true, message: 'Limpieza de RAM y Logs realizada. (Asegúrate de tener RENDER_DEPLOY_HOOK_URL configurado en Render).' });
 });
 
 // Chat Web
@@ -273,28 +308,28 @@ async function buscarOfertasJuegos() {
   return 'No encontré ofertas en este momento mano xd';
 }
 
-// Fallback Completo de Modelos Gemini
+// Bloque Completo de Modelos Fallback (1.0 hasta 3.6 + flash-latest)
 const MODELOS_FALLBACK = [
-  // --- Serie 3.x (Más recientes y potentes) ---
+  // --- Serie 3.x ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent',
 
-  // --- Serie 2.x (Rápidos y estables) ---
+  // --- Serie 2.x ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent',
 
-  // --- Serie 1.x (Clásicos y ligeros) ---
+  // --- Serie 1.x ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent',
 
-  // --- Alias Comodín de Apuntado Automático ---
+  // --- Alias Comodín ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
 ];
 
@@ -327,26 +362,22 @@ async function consultarGemini(parts, maxTokens = 120) {
   return 'toy medio pendejo ahorita mano xd';
 }
 
-// Búsqueda de GIFs con GIPHY y Fallback a Tenor
+// Búsqueda de GIFs con GIPHY y Fallback a Tenor (1 GIF por solicitud)
 async function buscarGifsReales(busqueda, cantidad = 1) {
   if (!featureToggles.gifs) return [];
-  const limiteMax = Math.min(Math.max(cantidad, 1), 2);
   const termino = busqueda || 'funny meme';
   const urlsEncontradas = [];
 
   const giphyKey = process.env.GIPHY_API_KEY;
   if (giphyKey) {
     try {
-      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${giphyKey}&q=${encodeURIComponent(termino)}&limit=10&rating=g`;
+      const urlGiphy = `https://api.giphy.com/v1/gifs/search?api_key=${giphyKey}&q=${encodeURIComponent(termino)}&limit=5&rating=g`;
       const resGiphy = await fetch(urlGiphy);
       if (resGiphy.ok) {
         const dataGiphy = await resGiphy.json();
         if (dataGiphy.data && dataGiphy.data.length > 0) {
-          for (let i = 0; i < limiteMax && i < dataGiphy.data.length; i++) {
-            const gifUrl = dataGiphy.data[i].images?.original?.url || dataGiphy.data[i].images?.downsized_medium?.url;
-            if (gifUrl) urlsEncontradas.push(gifUrl);
-          }
-          if (urlsEncontradas.length > 0) return urlsEncontradas;
+          const gifUrl = dataGiphy.data[0].images?.original?.url || dataGiphy.data[0].images?.downsized_medium?.url;
+          if (gifUrl) return [gifUrl];
         }
       }
     } catch (err) {
@@ -355,16 +386,13 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
   }
 
   try {
-    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=10`;
+    const urlTenor = `https://g.tenor.com/v1/search?q=${encodeURIComponent(termino)}&key=LIVDSRZULELA&limit=5`;
     const res = await fetch(urlTenor);
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
-        for (let i = 0; i < limiteMax && i < data.results.length; i++) {
-          const gifDirecto = data.results[i].media?.[0]?.gif?.url || data.results[i].url;
-          if (gifDirecto) urlsEncontradas.push(gifDirecto);
-        }
-        if (urlsEncontradas.length > 0) return urlsEncontradas;
+        const gifDirecto = data.results[0].media?.[0]?.gif?.url || data.results[0].url;
+        if (gifDirecto) return [gifDirecto];
       }
     }
   } catch (err) {
@@ -513,7 +541,6 @@ async function actualizarEstadoIA(peticionManual = null) {
 }
 
 function programarCambioEstadoRandom() {
-  // Lanzar dado entre 5 y 15 minutos
   const minutosRandom = Math.floor(Math.random() * (15 - 5 + 1)) + 5;
   setTimeout(async () => {
     await actualizarEstadoIA();
@@ -526,7 +553,7 @@ function iniciarMonitorRevivirChat() {
   setInterval(async () => {
     if (!client.isReady()) return;
     const ahora = Date.now();
-    const INACTIVIDAD_MS = 3 * 60 * 60 * 1000; // 3 horas de inactividad
+    const INACTIVIDAD_MS = 3 * 60 * 60 * 1000;
 
     for (const [channelId, lastTime] of canalUltimaActividad.entries()) {
       if (ahora - lastTime > INACTIVIDAD_MS) {
@@ -605,7 +632,6 @@ async function obtenerPresenciaCualquierEntorno(user, guild = null) {
 async function obtenerDetallesIntegrantesServidor(guild) {
   if (!guild) return 'Entorno DM (Sin lista masiva de servidor)';
   try {
-    // Uso de caché para evitar el Opcode 8 rate-limit de WebSocket
     const miembros = guild.members.cache;
     const resumenMiembros = [];
 
@@ -677,7 +703,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
     const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
 
-    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs|dos gifs)\b/i.test(promptUsuario);
+    const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
     const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
 
@@ -766,7 +792,6 @@ function construirTableroTicTacToe(tablero) {
     for (let j = 0; j < 3; j++) {
       const idx = i * 3 + j;
       const valor = tablero[idx];
-      // Corrección de error Discord API BASE_TYPE_REQUIRED
       const displayLabel = (valor === '-') ? '➖' : valor;
       const btn = new ButtonBuilder()
         .setCustomId(`tictactoe_${i}_${j}`)
@@ -795,7 +820,7 @@ function verificarGanadorTicTacToe(board) {
 }
 
 function obtenerMejorMovimientoTicTacToe(board) {
-  // 1. Intentar ganar en esta jugada
+  // 1. Ganar si se puede
   for (let i = 0; i < 9; i++) {
     if (board[i] === '-') {
       board[i] = '⭕';
@@ -806,7 +831,7 @@ function obtenerMejorMovimientoTicTacToe(board) {
       board[i] = '-';
     }
   }
-  // 2. Bloquear victoria del rival
+  // 2. Bloquear al rival
   for (let i = 0; i < 9; i++) {
     if (board[i] === '-') {
       board[i] = '❌';
@@ -817,14 +842,14 @@ function obtenerMejorMovimientoTicTacToe(board) {
       board[i] = '-';
     }
   }
-  // 3. Ocupar casilla centro si está libre
+  // 3. Tomar centro
   if (board[4] === '-') return 4;
 
-  // 4. Elegir esquina
+  // 4. Tomar esquina libre
   const esquinas = [0, 2, 6, 8].filter(idx => board[idx] === '-');
   if (esquinas.length > 0) return esquinas[Math.floor(Math.random() * esquinas.length)];
 
-  // 5. Elegir cualquiera disponible
+  // 5. Casilla libre aleatoria
   const casillasLibres = board.map((v, i) => v === '-' ? i : null).filter(v => v !== null);
   return casillasLibres[Math.floor(Math.random() * casillasLibres.length)];
 }
@@ -954,7 +979,6 @@ ${gifsUrls.join('\n')}`;
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
 
-  // Registrar timestamp para revivir chat
   if (message.guild && message.channel.isTextBased()) {
     canalUltimaActividad.set(message.channel.id, Date.now());
   }
@@ -1001,14 +1025,12 @@ client.on('messageCreate', async message => {
       const textoLimpio = textoFinal.length > 2000 ? textoFinal.slice(0, 1995) + '...' : textoFinal;
       const contenidoMensaje = textoLimpio || (archivosAdjuntos.length > 0 ? 'aquí tienes' : 'xd');
 
-      // Primer Envío
       if (esDM || conteoMensajes <= 3) {
         await message.channel.send({ content: contenidoMensaje, files: archivosAdjuntos });
       } else {
         await message.reply({ content: contenidoMensaje, files: archivosAdjuntos });
       }
 
-      // Lógica de razonamiento para un segundo mensaje si es requerido
       if (/\b(dos mensajes|envia otro|manda otra cosa|segundo mensaje)\b/i.test(message.content)) {
         setTimeout(async () => {
           await message.channel.send('y por cierto, aquí está lo otro que me pediste pe xd');
