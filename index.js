@@ -82,14 +82,13 @@ function validarKey(req, res, next) {
   else res.status(401).json({ error: 'Clave no autorizada' });
 }
 
-// Endpoint proxy TTS ElevenLabs
-// Endpoint proxy TTS ElevenLabs corregido con detalle de error y Voice ID verificado
+// Endpoint proxy TTS ElevenLabs corregido
 app.get('/api/tts', async (req, res) => {
   const text = req.query.text;
   if (!text) return res.status(400).send('Sin texto');
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  // ID público verificado por defecto (Rachel) si no se especifica uno en Render
+  // Tu Voice ID integrado por defecto
   const voiceId = process.env.ELEVENLABS_VOICE_ID || 'cSYZlFxlwpOmLsYMskUX';
 
   if (!apiKey) {
@@ -114,35 +113,6 @@ app.get('/api/tts', async (req, res) => {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`ElevenLabs Status ${response.status}: ${errorText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    res.set('Content-Type', 'audio/mpeg');
-    res.send(buffer);
-  } catch (err) {
-    logEvent(`Error en ElevenLabs, usando fallback: ${err.message}`, true);
-    res.redirect(`https://api.streamelements.com/kappa/v2/speech?voice=Lupe&text=${encodeURIComponent(text)}`);
-  }
-});
-
-  try {
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'audio/mpeg',
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        text: text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`ElevenLabs Status ${response.status}`);
     }
 
     const arrayBuffer = await response.arrayBuffer();
@@ -381,28 +351,21 @@ async function buscarOfertasJuegos() {
   return 'No encontré ofertas en este momento mano xd';
 }
 
-// Bloque Completo de Modelos Fallback (1.0 hasta 3.6 + flash-latest)
+// Bloque Completo de Modelos Fallback
 const MODELOS_FALLBACK = [
-  // --- Serie 3.x ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent',
-
-  // --- Serie 2.x ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent',
-
-  // --- Serie 1.x ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent',
-
-  // --- Alias Comodín ---
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
 ];
 
@@ -435,7 +398,7 @@ async function consultarGemini(parts, maxTokens = 120) {
   return 'toy medio pendejo ahorita mano xd';
 }
 
-// Búsqueda de GIFs con GIPHY y Fallback a Tenor (1 GIF por solicitud)
+// Búsqueda de GIFs con GIPHY y Fallback a Tenor
 async function buscarGifsReales(busqueda, cantidad = 1) {
   if (!featureToggles.gifs) return [];
   const termino = busqueda || 'funny meme';
@@ -474,7 +437,7 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
   return ['https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdWZ4OHl0ZG9zcHNmd3NwcjExMjl2MmVlZnVpM2VydjBjcmsxMG90ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7abKhOpu0NwenH3O/giphy.gif'];
 }
 
-// Generador de Memes en Imagen Real con Búsqueda de Plantilla
+// Generador de Memes en Imagen Real
 function generarUrlMemeImagen(promptMeme) {
   if (!featureToggles.memes) return null;
   try {
@@ -517,7 +480,7 @@ function generarUrlMemeImagen(promptMeme) {
   }
 }
 
-// Generador de Audios con ElevenLabs / Fallback
+// Generador de Audios
 function obtenerUrlAudioVozNativo(texto) {
   if (!featureToggles.audio) return null;
   try {
@@ -903,7 +866,6 @@ function verificarGanadorTicTacToe(board) {
 }
 
 function obtenerMejorMovimientoTicTacToe(board) {
-  // 1. Ganar si se puede
   for (let i = 0; i < 9; i++) {
     if (board[i] === '-') {
       board[i] = '⭕';
@@ -914,7 +876,6 @@ function obtenerMejorMovimientoTicTacToe(board) {
       board[i] = '-';
     }
   }
-  // 2. Bloquear al rival
   for (let i = 0; i < 9; i++) {
     if (board[i] === '-') {
       board[i] = '❌';
@@ -925,14 +886,11 @@ function obtenerMejorMovimientoTicTacToe(board) {
       board[i] = '-';
     }
   }
-  // 3. Tomar centro
   if (board[4] === '-') return 4;
 
-  // 4. Tomar esquina libre
   const esquinas = [0, 2, 6, 8].filter(idx => board[idx] === '-');
   if (esquinas.length > 0) return esquinas[Math.floor(Math.random() * esquinas.length)];
 
-  // 5. Casilla libre aleatoria
   const casillasLibres = board.map((v, i) => v === '-' ? i : null).filter(v => v !== null);
   return casillasLibres[Math.floor(Math.random() * casillasLibres.length)];
 }
