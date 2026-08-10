@@ -82,6 +82,48 @@ function validarKey(req, res, next) {
   else res.status(401).json({ error: 'Clave no autorizada' });
 }
 
+// Endpoint proxy TTS ElevenLabs
+app.get('/api/tts', async (req, res) => {
+  const text = req.query.text;
+  if (!text) return res.status(400).send('Sin texto');
+
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB';
+
+  // Si no hay API Key de ElevenLabs, fallback a StreamElements (Amazon Polly - Lupe)
+  if (!apiKey) {
+    return res.redirect(`https://api.streamelements.com/kappa/v2/speech?voice=Lupe&text=${encodeURIComponent(text)}`);
+  }
+
+  try {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'audio/mpeg',
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text: text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`ElevenLabs Status ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    res.set('Content-Type', 'audio/mpeg');
+    res.send(buffer);
+  } catch (err) {
+    logEvent(`Error en ElevenLabs, usando fallback: ${err.message}`, true);
+    res.redirect(`https://api.streamelements.com/kappa/v2/speech?voice=Lupe&text=${encodeURIComponent(text)}`);
+  }
+});
+
 // Endpoints REST de la API
 app.post('/api/login', validarKey, (req, res) => res.json({ success: true }));
 app.post('/api/stats', validarKey, (req, res) => {
@@ -366,7 +408,6 @@ async function consultarGemini(parts, maxTokens = 120) {
 async function buscarGifsReales(busqueda, cantidad = 1) {
   if (!featureToggles.gifs) return [];
   const termino = busqueda || 'funny meme';
-  const urlsEncontradas = [];
 
   const giphyKey = process.env.GIPHY_API_KEY;
   if (giphyKey) {
@@ -402,20 +443,29 @@ async function buscarGifsReales(busqueda, cantidad = 1) {
   return ['https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdWZ4OHl0ZG9zcHNmd3NwcjExMjl2MmVlZnVpM2VydjBjcmsxMG90ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7abKhOpu0NwenH3O/giphy.gif'];
 }
 
-// Generador de Memes en Imagen Real
-function generarUrlMemeImagen(textoMeme) {
+// Generador de Memes en Imagen Real con Búsqueda de Plantilla
+function generarUrlMemeImagen(promptMeme) {
   if (!featureToggles.memes) return null;
   try {
-    const plantillas = ['doge', 'drake', 'fry', 'buzz', 'fine', 'distracted', 'spenser'];
-    const plantillaRandom = plantillas[Math.floor(Math.random() * plantillas.length)];
+    const plantillasPopulares = [
+      'doge', 'drake', 'fry', 'buzz', 'fine', 'distracted', 'spenser', 
+      'pikachu', 'popcat', 'woman-yelling', 'gru', 'brain', 'cheems', 
+      'spongebob', 'grim-reaper', 'cat-meme', 'yall-got-any', 'disastergirl'
+    ];
     
+    let plantilla = plantillasPopulares[Math.floor(Math.random() * plantillasPopulares.length)];
     let textoArriba = 'cuando';
-    let textoAbajo = textoMeme;
+    let textoAbajo = promptMeme;
 
-    if (textoMeme.includes('|')) {
-      const partes = textoMeme.split('|');
-      textoArriba = partes[0].trim();
-      textoAbajo = partes[1].trim();
+    const partes = promptMeme.split('|').map(p => p.trim());
+    
+    if (partes.length >= 3) {
+      plantilla = partes[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      textoArriba = partes[1];
+      textoAbajo = partes[2];
+    } else if (partes.length === 2) {
+      textoArriba = partes[0];
+      textoAbajo = partes[1];
     }
 
     const sanearTexto = (t) => {
@@ -429,22 +479,24 @@ function generarUrlMemeImagen(textoMeme) {
       ) || '_';
     };
 
-    return `https://api.memegen.link/images/${plantillaRandom}/${sanearTexto(textoArriba)}/${sanearTexto(textoAbajo)}.png`;
+    return `https://api.memegen.link/images/${plantilla}/${sanearTexto(textoArriba)}/${sanearTexto(textoAbajo)}.png`;
   } catch (err) {
     logEvent(`Error formando URL de meme: ${err.message}`, true);
     return null;
   }
 }
 
-// Generador de Audios
+// Generador de Audios con ElevenLabs / Fallback
 function obtenerUrlAudioVozNativo(texto) {
   if (!featureToggles.audio) return null;
   try {
-    const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#\[\]]/g, '').slice(0, 150).trim();
+    const textoLimpio = texto.replace(/<[^>]*>?/gm, '').replace(/[\*\_\`\#\[\]]/g, '').slice(0, 250).trim();
     if (!textoLimpio) return null;
-    return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textoLimpio)}&tl=es-US&client=tw-ob`;
+    
+    const baseUrl = process.env.RENDER_EXTERNAL_URL || 'https://klint-gxww.onrender.com';
+    return `${baseUrl}/api/tts?text=${encodeURIComponent(textoLimpio)}`;
   } catch (err) {
-    logEvent(`Error generando audio nativo: ${err.message}`, true);
+    logEvent(`Error generando URL de audio: ${err.message}`, true);
     return null;
   }
 }
@@ -711,7 +763,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     if (pideAudio) {
       instruccionExtra = "\nREGLA DE AUDIO: Escribe ÚNICAMENTE la frase corta que vas a decir en voz alta.";
     } else if (pideMemeImagen) {
-      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea un meme corto en dos líneas usando el tag [GENERAR_MEME: texto arriba | texto abajo]. NUNCA escribas el tag en el texto visible del mensaje.";
+      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Crea un meme corto usando [GENERAR_MEME: plantilla_o_tema | texto arriba | texto abajo]. NUNCA escribas el tag en el texto visible del mensaje.";
     } else if (pideGifExplicitamente) {
       instruccionExtra = "\nREGLA DE GIF: Agrega al final [BUSCAR_GIF: palabra_clave_en_ingles]. NUNCA escribas el tag en el texto visible del mensaje.";
     }
