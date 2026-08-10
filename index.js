@@ -38,6 +38,9 @@ function guardarEnMemoriaCortoPlazo(userId, rol, nombre, contenido) {
   }
 }
 
+// Sistema de Nombres / Apodos Dinámicos
+const nombresKlint = new Set(['klint', 'clint', 'clini', 'cliner', 'klinton', 'clintermax', 'clin', 'klin', 'klinty']);
+
 // Sistema de Emociones / Humor por Usuario
 const humorUsuarios = new Map(); 
 const usuariosPermitidosMD = new Set(); 
@@ -75,7 +78,7 @@ const featureToggles = {
   memes: true,
   gifs: true,
   webChat: true,
-  mensajesAburrimiento: true // Klint puede desactivar/activar esta función según razone
+  mensajesAburrimiento: true
 };
 
 // HERRAMIENTAS / FUNCIONES QUE LA IA PUEDE EJECUTAR DE FORMA AUTÓNOMA
@@ -113,6 +116,41 @@ const HERRAMIENTAS_KLINT = [
         aburrimiento: { type: "INTEGER", description: "Nuevo nivel de aburrimiento (0 a 100)" }
       }
     }
+  },
+  {
+    name: "cambiar_estado_perfil",
+    description: "Permite a Klint cambiar su propio estado de Discord, su presencia o la actividad que está mostrando.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        textoEstado: { type: "STRING", description: "El texto del nuevo estado de perfil" },
+        visibilidad: { type: "STRING", description: "Estado de presencia: 'online', 'idle', o 'dnd'" },
+        tipoActividad: { type: "STRING", description: "Tipo de actividad: 'Custom', 'Playing', 'Listening', 'Watching'" }
+      },
+      required: ["textoEstado"]
+    }
+  },
+  {
+    name: "agregar_apodo",
+    description: "Permite a Klint registrar un nuevo nombre o apodo para responder cuando lo llamen asi.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        nuevoApodo: { type: "STRING", description: "El nuevo apodo o nombre a registrar en su código" }
+      },
+      required: ["nuevoApodo"]
+    }
+  },
+  {
+    name: "remover_apodo",
+    description: "Permite a Klint eliminar un apodo o nombre existente de su lista de variantes.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        apodoAEliminar: { type: "STRING", description: "El apodo o nombre a quitar" }
+      },
+      required: ["apodoAEliminar"]
+    }
   }
 ];
 
@@ -131,6 +169,38 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
     if (argumentos.aburrimiento !== undefined) humor.aburrimiento = Math.min(100, Math.max(0, argumentos.aburrimiento));
     logEvent(`[AUTONOMÍA KLINT] Klint ajustó sus emociones para ${userId}: Enojo=${humor.enojo}, Afecto=${humor.afecto}, Aburrimiento=${humor.aburrimiento}`);
     return "Emociones ajustadas correctamente.";
+  } else if (nombreTool === "cambiar_estado_perfil") {
+    const { textoEstado, visibilidad, tipoActividad } = argumentos;
+    if (client.user) {
+      let actType = ActivityType.Custom;
+      if (tipoActividad === 'Playing') actType = ActivityType.Playing;
+      if (tipoActividad === 'Listening') actType = ActivityType.Listening;
+      if (tipoActividad === 'Watching') actType = ActivityType.Watching;
+
+      client.user.setPresence({
+        status: visibilidad || 'online',
+        activities: [{
+          name: textoEstado,
+          type: actType
+        }]
+      });
+      logEvent(`[AUTONOMÍA KLINT] Estado cambiado por la IA a: "${textoEstado}" (${visibilidad || 'online'})`);
+      return `Estado actualizado a "${textoEstado}".`;
+    }
+  } else if (nombreTool === "agregar_apodo") {
+    const apodoLimpio = argumentos.nuevoApodo.toLowerCase().trim();
+    if (apodoLimpio) {
+      nombresKlint.add(apodoLimpio);
+      logEvent(`[AUTONOMÍA KLINT] Nuevo apodo agregado: "${apodoLimpio}"`);
+      return `Apodo "${apodoLimpio}" añadido correctamente. Ahora reacciono a él.`;
+    }
+  } else if (nombreTool === "remover_apodo") {
+    const apodoLimpio = argumentos.apodoAEliminar.toLowerCase().trim();
+    if (nombresKlint.has(apodoLimpio)) {
+      nombresKlint.delete(apodoLimpio);
+      logEvent(`[AUTONOMÍA KLINT] Apodo eliminado: "${apodoLimpio}"`);
+      return `Apodo "${apodoLimpio}" removido de la lista.`;
+    }
   }
   return "Error al ejecutar la herramienta.";
 }
@@ -771,7 +841,7 @@ function iniciarMonitorAburrimientoYMD() {
 
             const promptAburrido = `Estás aburrido y decides escribirle un mensaje por privado a ${user.username}.
 ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.
-AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual y decidir de forma espontánea qué escribirle.`;
+AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado de perfil o capacidades, y decidir de forma espontánea qué escribirle.`;
 
             const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50, userId);
             if (mensajeGenerado) {
@@ -906,7 +976,7 @@ async function obtenerDetallesIntegrantesServidor(guild, canal = null) {
   }
 }
 
-// Procesador de IA con Razonamiento y Modificación Autónoma de Código/Variables
+// Procesador de IA con Razonamiento, Control de Estado y Variantes de Nombre Dinámicas
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -976,10 +1046,13 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       instruccionExtra = "\nREGLA DE GIF: Si vas a enviar un gif adjunto usa [BUSCAR_GIF: palabra_clave_en_ingles].";
     }
 
+    const nombresActualesLista = Array.from(nombresKlint).join(', ');
+
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
 TU ESTADO ACTUAL EN DISCORD: "${estadoActualKlint}"
+NOMBRES/APODOS ACTUALES QUE RECONOCES COMO TUYOS: [${nombresActualesLista}]
 ESTADO ACTUAL DE TUS CAPACIDADES:
 - Mensajes por Aburrimiento: ${featureToggles.mensajesAburrimiento ? 'ACTIVADO' : 'DESACTIVADO'}
 - Audio/TTS: ${featureToggles.audio ? 'Activo' : 'Inactivo'}
@@ -989,8 +1062,12 @@ ESTADO ACTUAL DE TUS CAPACIDADES:
 ESTADO EMOCIONAL ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
 - Enojo: ${humor.enojo}/100 | Afecto: ${humor.afecto}/100 | Aburrimiento: ${humor.aburrimiento}/100
 
-RAZONAMIENTO Y AUTONOMÍA TOTAL:
-Tienes herramientas (modificar_capacidad, modificar_humor) para modificar el funcionamiento real del bot. Si el usuario te pide desactivar los mensajes de aburrimiento o cambiar algo, evalúa si deseas obedecerlo o no. Puedes decidir desactivarlo (modificar_capacidad: mensajesAburrimiento = false) o puedes razonar que te da igual y dejarlo activo o modificar tus emociones según cómo te trate.
+RAZONAMIENTO Y AUTONOMÍA TOTAL (CONTROL ABSOLUTO):
+Tienes herramientas para controlar totalmente tu perfil y tu código:
+- 'cambiar_estado_perfil': Puedes cambiar tu texto de perfil, estado online/dnd o actividad si así lo deseas o si el usuario te lo pide.
+- 'modificar_capacidad': Puedes activar/desactivar tus funciones reales.
+- 'modificar_humor': Puedes alterar tu humor.
+- 'agregar_apodo' / 'remover_apodo': Si un usuario te propone un nuevo apodo o te dice que te llames de otra forma, puedes registrarlo automáticamente ejecutando 'agregar_apodo' para reconocerlo en el futuro.
 
 LIBERTAD DE FORMATO: Tienes libertad de estructurar tu respuesta de forma orgánica. Si deseas separar tus ideas en mensajes independientes, utiliza "|||" entre cada bloque de texto.
 
@@ -1213,6 +1290,9 @@ client.on('interactionCreate', async interaction => {
 - Afecto: ${humor.afecto}/100
 - Aburrimiento: ${humor.aburrimiento}/100
 
+🗣️ **NOMBRES/APODOS ACTIVOS:**
+${Array.from(nombresKlint).join(', ')}
+
 🧠 **MEMORIAS GUARDADAS:**
 ${resumenMemoria}
 
@@ -1346,20 +1426,19 @@ client.on('messageCreate', async message => {
     const esDM = !message.guild;
     const textoLower = message.content.toLowerCase();
     
-    const patronNombres = /\b(clin|klin|klint|klinty)\b/i;
+    // Verificación dinámica de apodos y nombres
     const fueMencionadoDirectamente = message.mentions.has(client.user.id);
-    const contieneNombre = patronNombres.test(textoLower);
+    let contieneNombre = false;
+    for (const nombre of nombresKlint) {
+      const regex = new RegExp(`\\b${nombre}\\b`, 'i');
+      if (regex.test(textoLower)) {
+        contieneNombre = true;
+        break;
+      }
+    }
+
     const tieneAdjuntos = message.attachments.size > 0;
     const tieneStickers = message.stickers.size > 0;
-
-    if (contieneNombre && (textoLower.includes('cambia tu estado') || textoLower.includes('ponte de estado'))) {
-      await message.channel.sendTyping();
-      await actualizarEstadoIA(message.content);
-      const confirmacionPrompt = "Responde brevemente confirmando que cambiaste tu estado de perfil.";
-      const confirmacionTexto = await consultarGemini([{ text: confirmacionPrompt }], 30);
-      await message.reply(confirmacionTexto || 'Listo.');
-      return;
-    }
 
     if (esDM || fueMencionadoDirectamente || contieneNombre || (tieneAdjuntos && contieneNombre) || (tieneStickers && contieneNombre)) {
       await message.channel.sendTyping();
