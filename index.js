@@ -82,14 +82,14 @@ function validarKey(req, res, next) {
   else res.status(401).json({ error: 'Clave no autorizada' });
 }
 
-// Endpoint proxy TTS ElevenLabs corregido
+// Endpoint proxy TTS ElevenLabs con fallback seguro
 app.get('/api/tts', async (req, res) => {
   const text = req.query.text;
   if (!text) return res.status(400).send('Sin texto');
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  // Tu Voice ID integrado por defecto
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || 'cSYZlFxlwpOmLsYMskUX';
+  // Usar voz gratuita garantizada 'Rachel' (21m00Tcm4TlvDq8ikWAM)
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 
   if (!apiKey) {
     return res.redirect(`https://api.streamelements.com/kappa/v2/speech?voice=Lupe&text=${encodeURIComponent(text)}`);
@@ -161,7 +161,7 @@ app.post('/api/toggle-feature', validarKey, (req, res) => {
   }
 });
 
-// Gestión de Memorias Firebase (Obtener, Editar, Eliminar)
+// Gestión de Memorias Firebase
 app.post('/api/get-memories', validarKey, async (req, res) => {
   const dbUrl = obtenerFirebaseUrl();
   if (!dbUrl) return res.json({ users: {} });
@@ -495,6 +495,20 @@ function obtenerUrlAudioVozNativo(texto) {
   }
 }
 
+// Descargador directo de audio para Discord (Evita audios de 0 segs)
+async function descargarBufferAudio(urlAudio) {
+  try {
+    const res = await fetch(urlAudio);
+    if (res.ok) {
+      const arrayBuf = await res.arrayBuffer();
+      return Buffer.from(arrayBuf);
+    }
+  } catch (e) {
+    logEvent(`Error descargando buffer de audio: ${e.message}`, true);
+  }
+  return null;
+}
+
 // REST API Firebase
 async function obtenerMemoriaUsuario(userId) {
   const dbUrl = obtenerFirebaseUrl();
@@ -557,10 +571,21 @@ Si SÍ es importante, responde un resumen super corto de una frase.`;
   }
 }
 
-// CAMBIO DE ESTADO ALEATORIO DE 5 A 15 MINUTOS
+// CAMBIO DE ESTADO LIBRE, ALEATORIO Y DINÁMICO (5 A 15 MINUTOS)
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    let promptEstado = 'Inventa un estado de perfil de Discord informal y espontáneo (máximo 5 palabras). Todo en minúsculas, casual, sin puntos ni comillas.';
+    const estilosEstado = [
+      'Inventa un estado de perfil totalmente espontáneo, absurdo o gracioso.',
+      'Pon un estado de alguien que está comiendo o pensando en comida.',
+      'Pon un estado sobre estar jugando un juego aleatorio o viendo un video raro.',
+      'Pon un estado sarcástico sobre el trabajo, la vida o la tecnología.',
+      'Inventa una frase ultra corta de jerga casual urbana.',
+      'Pon un estado existencial o filosófico pero dicho como un meme.'
+    ];
+    
+    const estiloElegido = estilosEstado[Math.floor(Math.random() * estilosEstado.length)];
+    let promptEstado = `${estiloElegido} Máximo 5 palabras, todo en minúsculas, sin puntos ni comillas.`;
+    
     if (peticionManual) {
       promptEstado = `Genera un estado de perfil casual basado en esto: "${peticionManual}". Máximo 5 palabras, solo texto.`;
     }
@@ -906,7 +931,10 @@ client.on('interactionCreate', async interaction => {
       
       let archivosAdjuntos = [];
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
-      if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
+      if (audioUrl) {
+        const audioBuf = await descargarBufferAudio(audioUrl);
+        if (audioBuf) archivosAdjuntos.push(new AttachmentBuilder(audioBuf, { name: 'audio_klint.mp3' }));
+      }
 
       let mensajeFinal = respuesta;
       if (gifsUrls.length > 0) {
@@ -1054,7 +1082,10 @@ client.on('messageCreate', async message => {
       
       let archivosAdjuntos = [];
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
-      if (audioUrl) archivosAdjuntos.push(new AttachmentBuilder(audioUrl, { name: 'audio_klint.mp3' }));
+      if (audioUrl) {
+        const audioBuf = await descargarBufferAudio(audioUrl);
+        if (audioBuf) archivosAdjuntos.push(new AttachmentBuilder(audioBuf, { name: 'audio_klint.mp3' }));
+      }
 
       let textoFinal = respuesta;
       let gifParaEnviar = gifsUrls.length > 0 ? gifsUrls[0] : null;
