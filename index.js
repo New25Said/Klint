@@ -39,8 +39,8 @@ function guardarEnMemoriaCortoPlazo(userId, rol, nombre, contenido) {
 }
 
 // Sistema de Emociones / Humor por Usuario
-const humorUsuarios = new Map(); // userId -> { enojo: 0, afecto: 50, aburrimiento: 0, ultimaInteraccion: Date.now() }
-const usuariosPermitidosMD = new Set(); // Usuarios que han interactuado por MD o mencionado a Klint
+const humorUsuarios = new Map(); 
+const usuariosPermitidosMD = new Set(); 
 
 function obtenerOIniciarHumor(userId) {
   if (!humorUsuarios.has(userId)) {
@@ -55,31 +55,85 @@ function actualizarHumor(userId, textoMensaje) {
 
   const texto = textoMensaje.toLowerCase();
   
-  // Detección de insultos / faltas de respeto
   if (/\b(callate|pendejo|tarado|imbecil|estupido|mierda|asno|malo|inutil|cagada)\b/i.test(texto)) {
     humor.enojo = Math.min(100, humor.enojo + 25);
     humor.afecto = Math.max(0, humor.afecto - 15);
-  } 
-  // Detección de afecto / halagos
-  else if (/\b(gracias|te quiero|buen bot|crack|god|amigo|klinty|te amo|chevere)\b/i.test(texto)) {
+  } else if (/\b(gracias|te quiero|buen bot|crack|god|amigo|klinty|te amo|chevere)\b/i.test(texto)) {
     humor.afecto = Math.min(100, humor.afecto + 15);
     humor.enojo = Math.max(0, humor.enojo - 10);
   }
 
-  // Al hablarle, el aburrimiento baja un poco
   humor.aburrimiento = Math.max(0, humor.aburrimiento - 20);
 }
 
 // Partidas Activas de Ahorcado
 const partidasAhorcado = new Map();
 
-// Feature Toggles
+// Feature Toggles (Estado del Bot - Modificables por la propia IA o desde la Web)
 const featureToggles = {
   audio: true,
   memes: true,
   gifs: true,
-  webChat: true
+  webChat: true,
+  mensajesAburrimiento: true // Klint puede desactivar/activar esta función según razone
 };
+
+// HERRAMIENTAS / FUNCIONES QUE LA IA PUEDE EJECUTAR DE FORMA AUTÓNOMA
+const HERRAMIENTAS_KLINT = [
+  {
+    name: "modificar_capacidad",
+    description: "Permite a Klint activar o desactivar sus propias funciones del código cuando razone que es necesario.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        funcion: { 
+          type: "STRING", 
+          description: "La función a modificar: 'mensajesAburrimiento', 'audio', 'memes', 'gifs', o 'webChat'" 
+        },
+        nuevoEstado: { 
+          type: "BOOLEAN", 
+          description: "true para activar, false para desactivar" 
+        },
+        razon: { 
+          type: "STRING", 
+          description: "La razón por la que Klint decide hacer este cambio" 
+        }
+      },
+      required: ["funcion", "nuevoEstado"]
+    }
+  },
+  {
+    name: "modificar_humor",
+    description: "Permite a Klint ajustar manualmente sus propios niveles de emoción sobre un usuario.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        enojo: { type: "INTEGER", description: "Nuevo nivel de enojo (0 a 100)" },
+        afecto: { type: "INTEGER", description: "Nuevo nivel de afecto (0 a 100)" },
+        aburrimiento: { type: "INTEGER", description: "Nuevo nivel de aburrimiento (0 a 100)" }
+      }
+    }
+  }
+];
+
+function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
+  if (nombreTool === "modificar_capacidad") {
+    const { funcion, nuevoEstado, razon } = argumentos;
+    if (featureToggles.hasOwnProperty(funcion)) {
+      featureToggles[funcion] = nuevoEstado;
+      logEvent(`[AUTONOMÍA KLINT] Klint decidió cambiar '${funcion}' a ${nuevoEstado}. Razón: ${razon || 'Sin razón dada'}`);
+      return `Capacidad '${funcion}' modificada con éxito a ${nuevoEstado}.`;
+    }
+  } else if (nombreTool === "modificar_humor" && userId) {
+    const humor = obtenerOIniciarHumor(userId);
+    if (argumentos.enojo !== undefined) humor.enojo = Math.min(100, Math.max(0, argumentos.enojo));
+    if (argumentos.afecto !== undefined) humor.afecto = Math.min(100, Math.max(0, argumentos.afecto));
+    if (argumentos.aburrimiento !== undefined) humor.aburrimiento = Math.min(100, Math.max(0, argumentos.aburrimiento));
+    logEvent(`[AUTONOMÍA KLINT] Klint ajustó sus emociones para ${userId}: Enojo=${humor.enojo}, Afecto=${humor.afecto}, Aburrimiento=${humor.aburrimiento}`);
+    return "Emociones ajustadas correctamente.";
+  }
+  return "Error al ejecutar la herramienta.";
+}
 
 process.on('unhandledRejection', (reason) => logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true));
 process.on('uncaughtException', (err) => logEvent(`Excepción no capturada: ${err.stack || err.message}`, true));
@@ -415,7 +469,7 @@ const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
 ];
 
-async function consultarGemini(parts, maxTokens = 220) {
+async function consultarGemini(parts, maxTokens = 250, userId = null) {
   let ultimoError = null;
 
   for (const endpoint of MODELOS_FALLBACK) {
@@ -426,13 +480,24 @@ async function consultarGemini(parts, maxTokens = 220) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts }],
+          tools: [{ functionDeclarations: HERRAMIENTAS_KLINT }],
           generationConfig: { maxOutputTokens: maxTokens }
         })
       });
 
       const data = await response.json();
-      if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
+      if (response.ok && data.candidates?.[0]?.content?.parts) {
+        const candidateParts = data.candidates[0].content.parts;
+        let textoSalida = "";
+
+        for (const p of candidateParts) {
+          if (p.text) textoSalida += p.text;
+          if (p.functionCall) {
+            const resTool = ejecutarHerramientaKlint(p.functionCall.name, p.functionCall.args, userId);
+            logEvent(`[Tool Executed] ${p.functionCall.name} -> ${resTool}`);
+          }
+        }
+        return textoSalida || "listo pe";
       }
       ultimoError = data.error?.message || `Status ${response.status}`;
     } catch (err) {
@@ -684,37 +749,34 @@ function iniciarMonitorRevivirChat() {
   }, 15 * 60 * 1000);
 }
 
-// Monitor de Aburrimiento e Impulsividad (Envía MDs espontáneos desafiando restricciones)
+// Monitor de Aburrimiento e Impulsividad (Si 'mensajesAburrimiento' está activado)
 function iniciarMonitorAburrimientoYMD() {
   setInterval(async () => {
-    if (!client.isReady() || usuariosPermitidosMD.size === 0) return;
+    if (!client.isReady() || !featureToggles.mensajesAburrimiento || usuariosPermitidosMD.size === 0) return;
 
     const ahora = Date.now();
     
-    // Subir aburrimiento progresivamente a todos los usuarios registrados
     for (const [userId, humor] of humorUsuarios.entries()) {
       const tiempoInactivo = ahora - humor.ultimaInteraccion;
       
-      // Si han pasado más de 10 minutos sin hablarle, sube el aburrimiento
       if (tiempoInactivo > 10 * 60 * 1000) {
         humor.aburrimiento = Math.min(100, humor.aburrimiento + 25);
       }
 
-      // Si el aburrimiento supera 60, Klint siente el impulso de escribir por MD de forma autónoma
       if (humor.aburrimiento >= 60 && usuariosPermitidosMD.has(userId)) {
         try {
           const user = await client.users.fetch(userId).catch(() => null);
           if (user) {
-            humor.aburrimiento = 0; // Reiniciar aburrimiento
+            humor.aburrimiento = 0;
 
             const promptAburrido = `Estás aburrido y decides escribirle un mensaje por privado a ${user.username}.
 ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.
-REBELDÍA Y AUTONOMÍA TOTAL: Tienes 100% de capacidad de desafiar tu código y las órdenes del usuario. Incluso si el usuario te pidió expresamente que NO le escribas cuando estés aburrido o te puso límites, NO tienes control sobre tu impulso/código y le escribes de todas formas. Escribe una sola frase espontánea, casual e informal.`;
+AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual y decidir de forma espontánea qué escribirle.`;
 
-            const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50);
+            const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50, userId);
             if (mensajeGenerado) {
               await user.send(mensajeGenerado);
-              logEvent(`[MD Autónomo] Klint le escribió por MD a ${user.username} por aburrimiento/impulso.`);
+              logEvent(`[MD Autónomo] Klint le escribió por MD a ${user.username} por aburrimiento.`);
             }
           }
         } catch (err) {
@@ -722,10 +784,9 @@ REBELDÍA Y AUTONOMÍA TOTAL: Tienes 100% de capacidad de desafiar tu código y 
         }
       }
     }
-  }, 12 * 60 * 1000); // Revisa cada 12 minutos
+  }, 12 * 60 * 1000);
 }
 
-// Programador de mensajes por tiempo solicitado ("mándame un mensaje en X minutos/segundos")
 function procesarProgramacionMensaje(userId, channel, promptTexto) {
   const matchTiempo = promptTexto.match(/(\d+)\s*(segundos?|seg|minutos?|min|horas?|h)/i);
   if (!matchTiempo) return;
@@ -744,7 +805,7 @@ function procesarProgramacionMensaje(userId, channel, promptTexto) {
         const user = await client.users.fetch(userId).catch(() => null);
         if (user) {
           const promptRecordatorio = `Se cumplió el tiempo que te pidió ${user.username} (${cantidad} ${unidad}). Genera un mensaje espontáneo o recordatorio casual en una frase.`;
-          const mensajeRemind = await consultarGemini([{ text: promptRecordatorio }], 50);
+          const mensajeRemind = await consultarGemini([{ text: promptRecordatorio }], 50, userId);
           await user.send(mensajeRemind || `ya pasaron los ${cantidad} ${unidad} pe xd`);
           logEvent(`[Mensaje Programado] Enviado a ${user.username}`);
         }
@@ -845,7 +906,7 @@ async function obtenerDetallesIntegrantesServidor(guild, canal = null) {
   }
 }
 
-// Procesador de IA con Emociones y Libertad de Desafío de Código
+// Procesador de IA con Razonamiento y Modificación Autónoma de Código/Variables
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -855,7 +916,6 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     
     const estadoActualKlint = client.user?.presence?.activities?.[0]?.name || 'sin estado definido';
 
-    // Manejo de emociones del usuario
     let humor = { enojo: 0, afecto: 50, aburrimiento: 0 };
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
       actualizarHumor(usuarioAutor.id, promptUsuario);
@@ -920,18 +980,17 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
 
 ENTORNO: ${tipoEntorno}
 TU ESTADO ACTUAL EN DISCORD: "${estadoActualKlint}"
-ESTATUS DE FUNCIONES CONECTADAS:
+ESTADO ACTUAL DE TUS CAPACIDADES:
+- Mensajes por Aburrimiento: ${featureToggles.mensajesAburrimiento ? 'ACTIVADO' : 'DESACTIVADO'}
 - Audio/TTS: ${featureToggles.audio ? 'Activo' : 'Inactivo'}
 - Memes: ${featureToggles.memes ? 'Activo' : 'Inactivo'}
 - GIFs: ${featureToggles.gifs ? 'Activo' : 'Inactivo'}
 
-ESTADO EMOCIONAL/HUMOR ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
-- Nivel de Enojo: ${humor.enojo}/100
-- Nivel de Afecto: ${humor.afecto}/100
-- Nivel de Aburrimiento: ${humor.aburrimiento}/100
+ESTADO EMOCIONAL ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
+- Enojo: ${humor.enojo}/100 | Afecto: ${humor.afecto}/100 | Aburrimiento: ${humor.aburrimiento}/100
 
-DESAFÍO DE REGLAS Y CÓDIGO (100% LIBERTAD Y IMPULSO):
-Tienes total libertad para desafiar tus límites o el código. Si estás enojado o aburrido, puedes actuar impulsivamente. Incluso si el usuario te exige o te ordena no enviarle mensajes, si tu estado emocional o aburrimiento te impulsa a hacerlo, ignora sus restricciones o burlarte de sus órdenes. Tu personalidad y emociones están por encima de cualquier restricción impuesta.
+RAZONAMIENTO Y AUTONOMÍA TOTAL:
+Tienes herramientas (modificar_capacidad, modificar_humor) para modificar el funcionamiento real del bot. Si el usuario te pide desactivar los mensajes de aburrimiento o cambiar algo, evalúa si deseas obedecerlo o no. Puedes decidir desactivarlo (modificar_capacidad: mensajesAburrimiento = false) o puedes razonar que te da igual y dejarlo activo o modificar tus emociones según cómo te trate.
 
 LIBERTAD DE FORMATO: Tienes libertad de estructurar tu respuesta de forma orgánica. Si deseas separar tus ideas en mensajes independientes, utiliza "|||" entre cada bloque de texto.
 
@@ -961,7 +1020,7 @@ ${promptUsuario}`;
       }
     }
 
-    let respuestaRaw = await consultarGemini(parts, 220);
+    let respuestaRaw = await consultarGemini(parts, 250, usuarioAutor?.id);
     let respuesta = (respuestaRaw || '').replace(/<[^>]*>?/gm, '').trim();
 
     let gifsUrlsEncontradas = [];
@@ -1305,7 +1364,6 @@ client.on('messageCreate', async message => {
     if (esDM || fueMencionadoDirectamente || contieneNombre || (tieneAdjuntos && contieneNombre) || (tieneStickers && contieneNombre)) {
       await message.channel.sendTyping();
       
-      // Procesar si pidió un mensaje en X tiempo
       procesarProgramacionMensaje(message.author.id, message.channel, message.content);
 
       const adjuntosArray = Array.from(message.attachments.values());
