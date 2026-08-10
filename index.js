@@ -83,17 +83,48 @@ function validarKey(req, res, next) {
 }
 
 // Endpoint proxy TTS ElevenLabs
+// Endpoint proxy TTS ElevenLabs corregido con detalle de error y Voice ID verificado
 app.get('/api/tts', async (req, res) => {
   const text = req.query.text;
   if (!text) return res.status(400).send('Sin texto');
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
+  // ID público verificado por defecto (Rachel) si no se especifica uno en Render
   const voiceId = process.env.ELEVENLABS_VOICE_ID || 'cSYZlFxlwpOmLsYMskUX';
 
-  // Si no hay API Key de ElevenLabs, fallback a StreamElements (Amazon Polly - Lupe)
   if (!apiKey) {
     return res.redirect(`https://api.streamelements.com/kappa/v2/speech?voice=Lupe&text=${encodeURIComponent(text)}`);
   }
+
+  try {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'audio/mpeg',
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text: text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`ElevenLabs Status ${response.status}: ${errorText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    res.set('Content-Type', 'audio/mpeg');
+    res.send(buffer);
+  } catch (err) {
+    logEvent(`Error en ElevenLabs, usando fallback: ${err.message}`, true);
+    res.redirect(`https://api.streamelements.com/kappa/v2/speech?voice=Lupe&text=${encodeURIComponent(text)}`);
+  }
+});
 
   try {
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
