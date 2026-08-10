@@ -81,6 +81,8 @@ const featureToggles = {
   mensajesAburrimiento: true
 };
 
+let timerEstadoRandom = null;
+
 // HERRAMIENTAS / FUNCIONES QUE LA IA PUEDE EJECUTAR DE FORMA AUTÓNOMA
 const HERRAMIENTAS_KLINT = [
   {
@@ -151,8 +153,21 @@ const HERRAMIENTAS_KLINT = [
       },
       required: ["apodoAEliminar"]
     }
+  },
+  {
+    name: "reaccionar_mensaje",
+    description: "Permite a Klint reaccionar con un emoji al mensaje del usuario de forma espontánea sin dejar de responder.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        emoji: { type: "STRING", description: "El emoji con el que Klint desea reaccionar (ej: 💀, 🔥, 🤡, 😂, 👀)" }
+      },
+      required: ["emoji"]
+    }
   }
 ];
+
+let mensajeActualParaReaccionar = null;
 
 function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
   if (nombreTool === "modificar_capacidad") {
@@ -180,11 +195,17 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
       client.user.setPresence({
         status: visibilidad || 'online',
         activities: [{
-          name: textoEstado,
+          name: 'Custom Status',
+          state: textoEstado,
           type: actType
         }]
       });
       logEvent(`[AUTONOMÍA KLINT] Estado cambiado por la IA a: "${textoEstado}" (${visibilidad || 'online'})`);
+      
+      // Reiniciar el temporizador aleatorio para no romper la rutina de cambios
+      if (timerEstadoRandom) clearTimeout(timerEstadoRandom);
+      programarCambioEstadoRandom();
+
       return `Estado actualizado a "${textoEstado}".`;
     }
   } else if (nombreTool === "agregar_apodo") {
@@ -200,6 +221,14 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
       nombresKlint.delete(apodoLimpio);
       logEvent(`[AUTONOMÍA KLINT] Apodo eliminado: "${apodoLimpio}"`);
       return `Apodo "${apodoLimpio}" removido de la lista.`;
+    }
+  } else if (nombreTool === "reaccionar_mensaje") {
+    if (mensajeActualParaReaccionar && argumentos.emoji) {
+      mensajeActualParaReaccionar.react(argumentos.emoji).catch(err => {
+        logEvent(`Error reaccionando con emoji ${argumentos.emoji}: ${err.message}`, true);
+      });
+      logEvent(`[AUTONOMÍA KLINT] Klint reaccionó con ${argumentos.emoji} al mensaje.`);
+      return `Reaccionado con emoji ${argumentos.emoji}.`;
     }
   }
   return "Error al ejecutar la herramienta.";
@@ -775,7 +804,8 @@ async function actualizarEstadoIA(peticionManual = null) {
       client.user.setPresence({
         status: estadoAleatorio,
         activities: [{
-          name: textoEstado,
+          name: 'Custom Status',
+          state: textoEstado,
           type: ActivityType.Custom
         }]
       });
@@ -788,7 +818,7 @@ async function actualizarEstadoIA(peticionManual = null) {
 
 function programarCambioEstadoRandom() {
   const minutosRandom = Math.floor(Math.random() * (15 - 5 + 1)) + 5;
-  setTimeout(async () => {
+  timerEstadoRandom = setTimeout(async () => {
     await actualizarEstadoIA();
     programarCambioEstadoRandom();
   }, minutosRandom * 60 * 1000);
@@ -841,7 +871,7 @@ function iniciarMonitorAburrimientoYMD() {
 
             const promptAburrido = `Estás aburrido y decides escribirle un mensaje por privado a ${user.username}.
 ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.
-AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado de perfil o capacidades, y decidir de forma espontánea qué escribirle.`;
+AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado de perfil o capacidades, reaccionar con emojis o decidir de forma espontánea qué escribirle.`;
 
             const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50, userId);
             if (mensajeGenerado) {
@@ -976,7 +1006,7 @@ async function obtenerDetallesIntegrantesServidor(guild, canal = null) {
   }
 }
 
-// Procesador de IA con Razonamiento, Control de Estado y Variantes de Nombre Dinámicas
+// Procesador de IA
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -984,7 +1014,8 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
     const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild, canal);
     
-    const estadoActualKlint = client.user?.presence?.activities?.[0]?.name || 'sin estado definido';
+    const actActual = client.user?.presence?.activities?.[0];
+    const estadoActualKlint = actActual ? (actActual.state || actActual.name) : 'sin estado definido';
 
     let humor = { enojo: 0, afecto: 50, aburrimiento: 0 };
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
@@ -1051,7 +1082,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-TU ESTADO ACTUAL EN DISCORD: "${estadoActualKlint}"
+TU ESTADO ACTUAL VISIBLE EN DISCORD: "${estadoActualKlint}"
 NOMBRES/APODOS ACTUALES QUE RECONOCES COMO TUYOS: [${nombresActualesLista}]
 ESTADO ACTUAL DE TUS CAPACIDADES:
 - Mensajes por Aburrimiento: ${featureToggles.mensajesAburrimiento ? 'ACTIVADO' : 'DESACTIVADO'}
@@ -1064,10 +1095,11 @@ ESTADO EMOCIONAL ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
 
 RAZONAMIENTO Y AUTONOMÍA TOTAL (CONTROL ABSOLUTO):
 Tienes herramientas para controlar totalmente tu perfil y tu código:
-- 'cambiar_estado_perfil': Puedes cambiar tu texto de perfil, estado online/dnd o actividad si así lo deseas o si el usuario te lo pide.
+- 'cambiar_estado_perfil': Puedes cambiar tu texto de perfil, estado online/dnd o actividad si así lo deseas.
+- 'reaccionar_mensaje': Puedes decidir reaccionar espontáneamente con un emoji al mensaje del usuario si así lo deseas, sin dejar de enviarle tu respuesta de texto.
 - 'modificar_capacidad': Puedes activar/desactivar tus funciones reales.
 - 'modificar_humor': Puedes alterar tu humor.
-- 'agregar_apodo' / 'remover_apodo': Si un usuario te propone un nuevo apodo o te dice que te llames de otra forma, puedes registrarlo automáticamente ejecutando 'agregar_apodo' para reconocerlo en el futuro.
+- 'agregar_apodo' / 'remover_apodo': Si un usuario te propone un nuevo apodo, puedes registrarlo con 'agregar_apodo'.
 
 LIBERTAD DE FORMATO: Tienes libertad de estructurar tu respuesta de forma orgánica. Si deseas separar tus ideas en mensajes independientes, utiliza "|||" entre cada bloque de texto.
 
@@ -1234,6 +1266,9 @@ client.on('interactionCreate', async interaction => {
       await interaction.deferReply();
       const pregunta = interaction.options.getString('pregunta');
       const esDM = !interaction.guild;
+      
+      mensajeActualParaReaccionar = null;
+
       const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
       
       let archivosAdjuntos = [];
@@ -1443,6 +1478,7 @@ client.on('messageCreate', async message => {
     if (esDM || fueMencionadoDirectamente || contieneNombre || (tieneAdjuntos && contieneNombre) || (tieneStickers && contieneNombre)) {
       await message.channel.sendTyping();
       
+      mensajeActualParaReaccionar = message;
       procesarProgramacionMensaje(message.author.id, message.channel, message.content);
 
       const adjuntosArray = Array.from(message.attachments.values());
