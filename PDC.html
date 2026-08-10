@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Klint AI - Panel de Control (PDC)</title>
+  <style>
+    :root {
+      --bg: #1e1f22;
+      --card: #2b2d31;
+      --card-inner: #313338;
+      --border: #3f4147;
+      --accent: #5865f2;
+      --accent-purple: #8b5cf6;
+      --accent-hover: #4752c4;
+      --text: #f2f3f5;
+      --muted: #949ba4;
+      --danger: #da373c;
+      --warning: #f0b232;
+      --online: #23a55a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+    .container { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 20px; }
+
+    header {
+      background: linear-gradient(135deg, rgba(139,92,246,0.4) 0%, rgba(88,101,242,0.3) 50%, rgba(43,45,49,1) 100%);
+      border-radius: 16px; border: 1px solid var(--border); padding: 20px 24px;
+      display: flex; justify-content: space-between; align-items: center; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    header h1 { font-size: 1.6rem; color: #fff; display: flex; align-items: center; gap: 10px; }
+    .btn-back { background: #4e5058; color: white; text-decoration: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; }
+    .btn-back:hover { background: #6d6f78; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+    .card h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 12px; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+
+    .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+    .stat-box { background: var(--card-inner); padding: 14px; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
+    .stat-box span { font-size: 1.2rem; font-weight: bold; color: var(--accent-purple); display: block; margin-top: 4px; }
+
+    .features-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .feature-card { background: var(--card-inner); border: 1px solid var(--border); padding: 14px; border-radius: 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; }
+    .feature-card h3 { font-size: 0.95rem; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+    .status-pill { font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; font-weight: bold; text-transform: uppercase; }
+    .status-pill.on { background: rgba(35, 165, 90, 0.2); color: var(--online); border: 1px solid var(--online); }
+    .status-pill.off { background: rgba(218, 55, 60, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+
+    input[type="password"], input[type="text"], textarea {
+      width: 100%; background: #1e1f22; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 0.9rem; outline: none; margin-bottom: 8px;
+    }
+    input:focus, textarea:focus { border-color: var(--accent); }
+    textarea { height: 100px; resize: vertical; }
+
+    button { background: var(--accent); color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.88rem; transition: background 0.2s; }
+    button:hover { background: var(--accent-hover); }
+    button.danger { background: var(--danger); }
+    button.master { background: linear-gradient(135deg, #da373c 0%, #8b5cf6 100%); font-size: 1rem; padding: 12px 20px; width: 100%; font-weight: bold; }
+
+    .logs-box { background: #111214; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 220px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.82rem; color: #3ba55c; }
+    .logs-box div.error { color: #f23f43; }
+
+    .memory-list { background: #111214; border: 1px solid var(--border); border-radius: 6px; padding: 12px; max-height: 250px; overflow-y: auto; font-size: 0.85rem; }
+    .memory-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid #222; }
+    .memory-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .edit-input-group { display: flex; gap: 6px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <header>
+      <h1>⚙️ Panel de Control de Klint AI</h1>
+      <a href="/" class="btn-back">⬅ Volver al Inicio</a>
+    </header>
+
+    <!-- Pantalla de Login -->
+    <div id="loginCard" class="card">
+      <h2>🔐 Autenticación de Administrador</h2>
+      <p style="color: var(--muted); font-size: 0.9rem; margin-bottom: 10px;">Ingresa la clave maestra (saidkey) para acceder a los controles del servidor:</p>
+      <div style="display: flex; gap: 8px;">
+        <input type="password" id="authKey" placeholder="Introduce clave de acceso..." style="margin-bottom:0;">
+        <button onclick="loginAdmin()">Ingresar</button>
+      </div>
+      <p id="loginStatus" style="font-size: 0.85rem; margin-top: 8px; color: var(--muted);"></p>
+    </div>
+
+    <!-- Panel Protegido PDC -->
+    <div id="pdcContent" style="display: none; flex-direction: column; gap: 20px;">
+      
+      <!-- Métricas -->
+      <div class="card">
+        <h2>📊 Métricas & Latencias del Servidor</h2>
+        <div class="grid-stats">
+          <div class="stat-box">Estatus Bot: <span id="statStatus" style="color:var(--online);">ONLINE</span></div>
+          <div class="stat-box">Modelo Gemini: <span>3.6 / Fallbacks</span></div>
+          <div class="stat-box">Latencia WebSocket: <span id="statPing">-</span></div>
+          <div class="stat-box">Servidores Conectados: <span id="statGuilds">-</span></div>
+        </div>
+      </div>
+
+      <!-- Comprobación de Funciones -->
+      <div class="card">
+        <h2>🧩 Cajón de Comprobación de Funciones</h2>
+        <div class="features-boxes">
+          <div class="feature-card">
+            <h3>🎙️ Notas de Voz MP3 <span id="pillAudio" class="status-pill on">ACTIVO</span></h3>
+            <button onclick="toggleFeature('audio')">Alternar Estado</button>
+          </div>
+          <div class="feature-card">
+            <h3>🖼️ Generador Memes <span id="pillMemes" class="status-pill on">ACTIVO</span></h3>
+            <button onclick="toggleFeature('memes')">Alternar Estado</button>
+          </div>
+          <div class="feature-card">
+            <h3>🎞️ Motor de GIFs <span id="pillGifs" class="status-pill on">ACTIVO</span></h3>
+            <button onclick="toggleFeature('gifs')">Alternar Estado</button>
+          </div>
+          <div class="feature-card">
+            <h3>💬 Chat Web Sandbox <span id="pillWebChat" class="status-pill on">ACTIVO</span></h3>
+            <button onclick="toggleFeature('webChat')">Alternar Estado</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Acción Maestra -->
+      <div class="card">
+        <h2>💣 Acción Maestra de Limpieza y Despliegue</h2>
+        <p style="color: var(--muted); font-size: 0.88rem; margin-bottom: 12px;">Ejecuta una purga de RAM/Logs en tiempo real, elimina la memoria temporal y desencadena el último deploy en Render en un solo paso.</p>
+        <button class="master" onclick="ejecutarMasterResetDeploy()">🧹 EJECUTAR RESET DURO + LIMPIEZA + RE-DEPLOY</button>
+      </div>
+
+      <!-- Gestor de Memorias Firebase -->
+      <div class="card">
+        <h2>🧠 Gestor de Memorias Persistentes (Firebase)</h2>
+        <div id="memoryList" class="memory-list">Cargando datos de Firebase...</div>
+      </div>
+
+      <!-- Prompt Base -->
+      <div class="card">
+        <h2>📝 System Instructions (Prompt Base)</h2>
+        <textarea id="promptText" placeholder="Cargando instrucciones de system_instruction.txt..."></textarea>
+        <button onclick="guardarPrompt()">Guardar Instrucciones</button>
+      </div>
+
+      <!-- Consola de Logs -->
+      <div class="card">
+        <h2>💻 Consola de Logs en Vivo</h2>
+        <div id="logsContainer" class="logs-box">Cargando logs...</div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    let sessionKey = '';
+
+    async function loginAdmin() {
+      const keyInput = document.getElementById('authKey').value;
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: keyInput })
+      });
+      if (res.ok) {
+        sessionKey = keyInput;
+        document.getElementById('loginCard').style.display = 'none';
+        document.getElementById('pdcContent').style.display = 'flex';
+        cargarStats();
+        cargarPrompt();
+        cargarLogs();
+        cargarMemorias();
+        setInterval(cargarLogs, 4000);
+      } else {
+        document.getElementById('loginStatus').innerText = '❌ Clave incorrecta.';
+      }
+    }
+
+    async function cargarStats() {
+      const res = await fetch('/api/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('statGuilds').innerText = data.guilds;
+        document.getElementById('statPing').innerText = data.ping + ' ms';
+        actualizarPills(data.toggles);
+      }
+    }
+
+    function actualizarPills(toggles) {
+      if (!toggles) return;
+      for (const [key, val] of Object.entries(toggles)) {
+        const pill = document.getElementById(`pill${key.charAt(0).toUpperCase() + key.slice(1)}`);
+        if (pill) {
+          pill.className = `status-pill ${val ? 'on' : 'off'}`;
+          pill.innerText = val ? 'ACTIVO' : 'INACTIVO';
+        }
+      }
+    }
+
+    async function toggleFeature(feature) {
+      const res = await fetch('/api/toggle-feature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, feature, value: true })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        actualizarPills(data.toggles);
+      }
+    }
+
+    async function cargarMemorias() {
+      const res = await fetch('/api/get-memories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const container = document.getElementById('memoryList');
+        container.innerHTML = '';
+        if (!data.users || Object.keys(data.users).length === 0) {
+          container.innerHTML = 'Sin memorias registradas.';
+          return;
+        }
+        for (const [id, user] of Object.entries(data.users)) {
+          if (user.memorias) {
+            for (const [memKey, mem] of Object.entries(user.memorias)) {
+              container.innerHTML += `
+                <div class="memory-item">
+                  <div class="memory-row">
+                    <span><strong>${user.perfil?.username || id}:</strong> ${mem.resumen}</span>
+                    <div>
+                      <button onclick="mostrarEditor('${id}', '${memKey}')">Editar</button>
+                      <button class="danger" onclick="borrarMemoria('${id}', '${memKey}')">Borrar</button>
+                    </div>
+                  </div>
+                  <div id="edit_${id}_${memKey}" class="edit-input-group" style="display:none;">
+                    <input type="text" id="input_${id}_${memKey}" value="${mem.resumen.replace(/"/g, '&quot;')}">
+                    <button onclick="guardarEdicionMemoria('${id}', '${memKey}')">Guardar</button>
+                  </div>
+                </div>`;
+            }
+          }
+        }
+      }
+    }
+
+    function mostrarEditor(userId, memoryKey) {
+      const div = document.getElementById(`edit_${userId}_${memoryKey}`);
+      div.style.display = div.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    async function guardarEdicionMemoria(userId, memoryKey) {
+      const newResumen = document.getElementById(`input_${userId}_${memoryKey}`).value.trim();
+      if (!newResumen) return;
+      await fetch('/api/edit-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, userId, memoryKey, newResumen })
+      });
+      cargarMemorias();
+    }
+
+    async function borrarMemoria(userId, memoryKey) {
+      if (!confirm('¿Deseas eliminar este recuerdo de Firebase?')) return;
+      await fetch('/api/delete-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, userId, memoryKey })
+      });
+      cargarMemorias();
+    }
+
+    async function ejecutarMasterResetDeploy() {
+      if (!confirm('¿Seguro que deseas purgar los logs, limpiar RAM y activar un nuevo despliegue en Render?')) return;
+      const res = await fetch('/api/master-reset-deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey })
+      });
+      const data = await res.json();
+      alert(data.message);
+    }
+
+    async function cargarPrompt() {
+      const res = await fetch('/api/get-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('promptText').value = data.prompt;
+      }
+    }
+
+    async function guardarPrompt() {
+      const prompt = document.getElementById('promptText').value;
+      await fetch('/api/save-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, prompt })
+      });
+      alert('✅ Instrucciones guardadas correctamente.');
+    }
+
+    async function cargarLogs() {
+      const res = await fetch('/api/get-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const container = document.getElementById('logsContainer');
+        container.innerHTML = data.logs.map(log => {
+          const isErr = log.includes('[ERROR');
+          return `<div class="${isErr ? 'error' : ''}">${log}</div>`;
+        }).join('');
+      }
+    }
+  </script>
+</body>
+</html>
