@@ -22,6 +22,26 @@ function logEvent(msg, esError = false) {
 // Control de Actividad para Revivir Chat
 const canalUltimaActividad = new Map();
 
+// Memoria a Corto Plazo en Memoria RAM por Usuario (Últimos 30 mensajes)
+const memoriaCortoPlazoUsuarios = new Map();
+
+function guardarEnMemoriaCortoPlazo(userId, rol, nombre, contenido) {
+  if (!userId || userId === 'web_guest') return;
+  if (!memoriaCortoPlazoUsuarios.has(userId)) {
+    memoriaCortoPlazoUsuarios.set(userId, []);
+  }
+  const historialUser = memoriaCortoPlazoUsuarios.get(userId);
+  historialUser.push({ rol, nombre, contenido, fecha: new Date() });
+  
+  // Limitar a los últimos 30 mensajes por usuario
+  if (historialUser.length > 30) {
+    historialUser.shift();
+  }
+}
+
+// Partidas Activas de Ahorcado
+const partidasAhorcado = new Map();
+
 // Feature Toggles (Control en tiempo real desde la Web)
 const featureToggles = {
   audio: true,
@@ -88,7 +108,6 @@ app.get('/api/tts', async (req, res) => {
   if (!text) return res.status(400).send('Sin texto');
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  // Voz gratuita garantizada 'Rachel' (21m00Tcm4TlvDq8ikWAM)
   const voiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 
   if (!apiKey) {
@@ -224,6 +243,8 @@ app.post('/api/send-discord-msg', validarKey, async (req, res) => {
 app.post('/api/deep-reset', validarKey, async (req, res) => {
   logEvent('Iniciando proceso de Limpieza Profunda...');
   systemLogs = [];
+  memoriaCortoPlazoUsuarios.clear();
+  partidasAhorcado.clear();
   if (global.gc) try { global.gc(); } catch (e) {}
 
   const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
@@ -245,6 +266,8 @@ app.post('/api/deep-reset', validarKey, async (req, res) => {
 app.post('/api/master-reset-deploy', validarKey, async (req, res) => {
   logEvent('Ejecutando Reset Duro, Limpieza de Cache/Logs e iniciando Re-Deploy...');
   systemLogs = [];
+  memoriaCortoPlazoUsuarios.clear();
+  partidasAhorcado.clear();
   if (global.gc) try { global.gc(); } catch (e) {}
 
   const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
@@ -319,7 +342,10 @@ const commands = [
     .setDescription('Busca ofertas de juegos en descuento'),
   new SlashCommandBuilder()
     .setName('juego')
-    .setDescription('Inicia una partida de Tres en Raya con botones')
+    .setDescription('Inicia una partida de Tres en Raya con botones'),
+  new SlashCommandBuilder()
+    .setName('ahorcado')
+    .setDescription('Juega al Ahorcado con Klint')
 ].map(command => command.toJSON());
 
 client.once('clientReady', async () => {
@@ -327,7 +353,7 @@ client.once('clientReady', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    logEvent('Comandos Slash /klint, /status, /ofertas y /juego sincronizados.');
+    logEvent('Comandos Slash /klint, /status, /ofertas, /juego y /ahorcado sincronizados.');
   } catch (error) {
     logEvent(`Error al registrar comandos slash: ${error.message}`, true);
   }
@@ -555,11 +581,12 @@ async function actualizarPerfilYMemoria(userId, username, displayName, mensaje, 
   }
 }
 
+// Evaluación de Memoria Corregida (Escribe en primera persona desde Klint)
 async function evaluarYGuardarMemoria(user, mensajeUsuario) {
   try {
-    const promptEvaluacion = `Analiza si este mensaje de ${user.username} contiene un dato personal clave, secreto o gusto a recordar a futuro: "${mensajeUsuario}".
-Si NO es importante responde: NO.
-Si SÍ es importante, responde un resumen super corto de una frase.`;
+    const promptEvaluacion = `Eres Klint. Analiza si este mensaje de ${user.username} contiene un dato personal clave, gusto o secreto que DEBES recordar a futuro: "${mensajeUsuario}".
+Si NO es relevante responde exactamente: NO.
+Si SÍ es relevante, redacta la memoria EN PRIMERA PERSONA DESDE TU PERSPECTIVA (ejemplos: "Me contó que...", "Sé que le gusta...", "Me dijo que vive en..."). NUNCA hables de Klint en tercera persona. Max 1 frase.`;
 
     const resultado = await consultarGemini([{ text: promptEvaluacion }], 60);
     const textoRespuesta = (resultado || '').trim();
@@ -734,7 +761,7 @@ async function obtenerDetallesIntegrantesServidor(guild) {
   }
 }
 
-// Procesar respuesta de la IA (Conciencia propia + Múltiples mensajes)
+// Procesar respuesta de la IA (Con Memoria de Corto Plazo de 30 Mensajes por Usuario)
 async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
@@ -742,7 +769,6 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const presenciaAutor = await obtenerPresenciaCualquierEntorno(usuarioAutor, guild);
     const miembrosServidorTexto = await obtenerDetallesIntegrantesServidor(guild);
     
-    // Conciencia de su propio estado en Discord
     const estadoActualKlint = client.user?.presence?.activities?.[0]?.name || 'sin estado definido';
 
     let historialFormateado = '';
@@ -765,13 +791,22 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       }).join('\n');
     }
 
+    // Memoria a corto plazo del usuario específico
+    let historialCortoPlazoTexto = '';
+    if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
+      const conversacionPrevia = memoriaCortoPlazoUsuarios.get(usuarioAutor.id) || [];
+      if (conversacionPrevia.length > 0) {
+        historialCortoPlazoTexto = conversacionPrevia.map(m => `[${m.rol}] ${m.nombre}: ${m.contenido}`).join('\n');
+      }
+    }
+
     let contextoMemoriaAutor = '';
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
       const datosFirebase = await obtenerMemoriaUsuario(usuarioAutor.id);
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
         const ultimasMemorias = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
-        contextoMemoriaAutor = `\nRECUERDOS DE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
+        contextoMemoriaAutor = `\nDATOS Y MEMORIAS A LARGO PLAZO QUE TIENES SOBRE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
       }
     }
 
@@ -793,7 +828,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-TU ESTADO ACTUAL PUESTO EN DISCORD: "${estadoActualKlint}" (si te preguntan qué haces o tu estado, eres consciente de que tienes este estado puesto en Discord).
+TU ESTADO ACTUAL EN DISCORD: "${estadoActualKlint}"
 ESTATUS DE FUNCIONES CONECTADAS:
 - Audio/TTS: ${featureToggles.audio ? 'Activo' : 'Inactivo'}
 - Memes: ${featureToggles.memes ? 'Activo' : 'Inactivo'}
@@ -802,17 +837,18 @@ ESTATUS DE FUNCIONES CONECTADAS:
 REGLA DE MÚLTIPLES MENSAJES: Si te piden enviar la respuesta en 2 o más mensajes o enviar datos/gifs separados, usa "|||" como separador entre cada mensaje.
 
 DATOS DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
-INSTALACIÓN Y APPS/COMANDOS DEL SERVIDOR: Si el usuario pide invocar/usar otras apps o comandos de Discord, instrúyelo o indícale cómo activarlos.
-${instruccionExtra}
 ${contextoMemoriaAutor}
+
+MEMORIA A CORTO PLAZO (Tus últimos mensajes intercambiados en privado/directo con ${usuarioAutor?.username}):
+${historialCortoPlazoTexto || 'Sin historial reciente grabado'}
 
 LISTA DE MIEMBROS DE ESTE SERVIDOR:
 ${miembrosServidorTexto}
 
-HISTORIAL DEL CHAT:
+HISTORIAL RECIENTE DEL CANAL GENERAL:
 ${historialFormateado}
 
-MENSAJE DE ${usuarioAutor?.username || 'Usuario'} A RESPONDER:
+MENSAJE DE ${usuarioAutor?.username || 'Usuario'} A RESPONDER AHORA:
 ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
@@ -850,6 +886,10 @@ ${promptUsuario}`;
     }
 
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
+      // Guardar el intercambio en la memoria de corto plazo
+      guardarEnMemoriaCortoPlazo(usuarioAutor.id, 'USUARIO', usuarioAutor.username, promptUsuario);
+      guardarEnMemoriaCortoPlazo(usuarioAutor.id, 'KLINT', 'Klint', respuesta);
+
       evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
     }
 
@@ -866,7 +906,7 @@ ${promptUsuario}`;
   }
 }
 
-// TRES EN RAYA INTELIGENTE (IA TÁCTICA)
+// TRES EN RAYA INTELIGENTE
 function construirTableroTicTacToe(tablero) {
   const rows = [];
   for (let i = 0; i < 3; i++) {
@@ -929,6 +969,31 @@ function obtenerMejorMovimientoTicTacToe(board) {
 
   const casillasLibres = board.map((v, i) => v === '-' ? i : null).filter(v => v !== null);
   return casillasLibres[Math.floor(Math.random() * casillasLibres.length)];
+}
+
+// MINIJUEGO: AHORCADO INTERACTIVO
+const PALABRAS_AHORCADO = ['DISCORD', 'MEMORIA', 'KLINT', 'BOT', 'PERU', 'RENDER', 'FIREBASE', 'GAMER', 'CRAZY'];
+
+function crearComponentesAhorcado(letrasUsadas) {
+  const abecedario = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z'];
+  const rows = [];
+  
+  for (let i = 0; i < 25; i += 5) {
+    const row = new ActionRowBuilder();
+    const grupo = abecedario.slice(i, i + 5);
+    grupo.forEach(letra => {
+      const usada = letrasUsadas.includes(letra);
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`ahorcado_${letra}`)
+          .setLabel(letra)
+          .setStyle(usada ? ButtonStyle.Secondary : ButtonStyle.Primary)
+          .setDisabled(usada)
+      );
+    });
+    rows.push(row);
+  }
+  return rows;
 }
 
 // Slash Commands e Interacciones
@@ -1013,6 +1078,65 @@ ${gifsUrls.join('\n')}`;
       const rows = construirTableroTicTacToe(tableroInicial);
       await interaction.reply({ content: '❌ **TRES EN RAYA DE KLINT** - Haz tu primer movimiento:', components: rows });
     }
+
+    if (interaction.commandName === 'ahorcado') {
+      const palabraElegida = PALABRAS_AHORCADO[Math.floor(Math.random() * PALABRAS_AHORCADO.length)];
+      partidasAhorcado.set(interaction.user.id, {
+        palabra: palabraElegida,
+        letrasUsadas: [],
+        intentosRestantes: 6
+      });
+
+      const progreso = palabraElegida.split('').map(() => '🟦').join(' ');
+      const rows = crearComponentesAhorcado([]);
+
+      await interaction.reply({
+        content: `🔤 **JUEGO DEL AHORCADO**\n\nPalabra: ${progreso}\nIntentos restantes: 6 ❤️\nElige una letra:`,
+        components: rows
+      });
+    }
+  }
+
+  // Manejo de botones para Ahorcado
+  if (interaction.isButton() && interaction.customId.startsWith('ahorcado_')) {
+    const partida = partidasAhorcado.get(interaction.user.id);
+    if (!partida) {
+      return interaction.reply({ content: 'No tienes ninguna partida activa de ahorcado. Inicia una con `/ahorcado`.', ephemeral: true });
+    }
+
+    const letraElegida = interaction.customId.replace('ahorcado_', '');
+    partida.letrasUsadas.push(letraElegida);
+
+    if (!partida.palabra.includes(letraElegida)) {
+      partida.intentosRestantes--;
+    }
+
+    const estaGanada = partida.palabra.split('').every(letra => partida.letrasUsadas.includes(letra));
+    const estaPerdida = partida.intentosRestantes <= 0;
+
+    const progresoText = partida.palabra.split('').map(letra => partida.letrasUsadas.includes(letra) ? `**${letra}**` : '🟦').join(' ');
+
+    if (estaGanada) {
+      partidasAhorcado.delete(interaction.user.id);
+      return interaction.update({
+        content: `🎉 ¡Ganaste mano! Adivinaste la palabra: **${partida.palabra}**`,
+        components: []
+      });
+    }
+
+    if (estaPerdida) {
+      partidasAhorcado.delete(interaction.user.id);
+      return interaction.update({
+        content: `💀 ¡Perdiste mano xd! La palabra era: **${partida.palabra}**`,
+        components: []
+      });
+    }
+
+    const rows = crearComponentesAhorcado(partida.letrasUsadas);
+    await interaction.update({
+      content: `🔤 **JUEGO DEL AHORCADO**\n\nPalabra: ${progresoText}\nIntentos restantes: ${partida.intentosRestantes} ❤️\nElige una letra:`,
+      components: rows
+    });
   }
 
   // Manejo de botones para Tres en Raya
@@ -1037,7 +1161,6 @@ ${gifsUrls.join('\n')}`;
       return interaction.reply({ content: 'Esa casilla ya está ocupada pe mano.', ephemeral: true });
     }
 
-    // Jugada del Usuario
     board[idxClick] = '❌';
 
     let ganador = verificarGanadorTicTacToe(board);
@@ -1046,7 +1169,6 @@ ${gifsUrls.join('\n')}`;
       return interaction.update({ content: `❌ **TRES EN RAYA DE KLINT** - ${statusText}`, components: construirTableroTicTacToe(board) });
     }
 
-    // Jugada Inteligente de Klint
     const eleccionKlint = obtenerMejorMovimientoTicTacToe(board);
     if (eleccionKlint !== undefined && eleccionKlint !== null) {
       board[eleccionKlint] = '⭕';
@@ -1104,7 +1226,6 @@ client.on('messageCreate', async message => {
         if (audioBuf) archivosAdjuntos.push(new AttachmentBuilder(audioBuf, { name: 'audio_klint.mp3' }));
       }
 
-      // Separar por '|||' para soportar mensajes múltiples sin linkear
       let mensajesSeparados = respuesta.split('|||').map(m => m.trim()).filter(m => m.length > 0);
       if (mensajesSeparados.length === 0) mensajesSeparados = ['aquí tienes'];
 
@@ -1118,7 +1239,6 @@ client.on('messageCreate', async message => {
           await message.reply({ content: primerTexto, files: archivosAdjuntos });
         }
 
-        // Mensajes adicionales independientes (no enlazados)
         for (let i = 1; i < mensajesSeparados.length; i++) {
           await new Promise(resolve => setTimeout(resolve, 1200));
           await message.channel.send(mensajesSeparados[i]);
