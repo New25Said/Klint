@@ -88,7 +88,7 @@ app.get('/api/tts', async (req, res) => {
   if (!text) return res.status(400).send('Sin texto');
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB';
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || 'cSYZlFxlwpOmLsYMskUX';
 
   // Si no hay API Key de ElevenLabs, fallback a StreamElements (Amazon Polly - Lupe)
   if (!apiKey) {
