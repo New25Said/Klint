@@ -3,7 +3,7 @@ const {
   AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle 
 } = require('discord.js');
 const express = require('express');
-const path = path = require('path');
+const path = require('path');
 const fs = require('fs');
 
 // System Logs
@@ -164,23 +164,10 @@ const HERRAMIENTAS_KLINT = [
       },
       required: ["emoji"]
     }
-  },
-  {
-    name: "spamear_mensajes",
-    description: "Permite a Klint enviar varios mensajes seguidos en el chat cuando se lo pidan o por impulso.",
-    parameters: {
-      type: "OBJECT",
-      properties: {
-        textoSpam: { type: "STRING", description: "El mensaje o frase a repetir" },
-        cantidad: { type: "INTEGER", description: "Cantidad de mensajes a enviar (Máximo 10)" }
-      },
-      required: ["textoSpam", "cantidad"]
-    }
   }
 ];
 
 let mensajeActualParaReaccionar = null;
-let canalActualParaSpam = null;
 
 function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
   if (nombreTool === "modificar_capacidad") {
@@ -241,17 +228,6 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
       });
       logEvent(`[AUTONOMÍA KLINT] Klint reaccionó con ${argumentos.emoji} al mensaje.`);
       return `Reaccionado con emoji ${argumentos.emoji}.`;
-    }
-  } else if (nombreTool === "spamear_mensajes") {
-    if (canalActualParaSpam) {
-      const tope = Math.min(Math.max(1, argumentos.cantidad || 3), 10);
-      for (let i = 0; i < tope; i++) {
-        setTimeout(() => {
-          canalActualParaSpam.send(argumentos.textoSpam).catch(() => {});
-        }, i * 700);
-      }
-      logEvent(`[AUTONOMÍA KLINT] Spam ejecutado: ${tope} mensajes.`);
-      return `Spam de ${tope} mensajes iniciado.`;
     }
   }
   return "Error al ejecutar la herramienta.";
@@ -894,7 +870,7 @@ function iniciarMonitorAburrimientoYMD() {
 
             const promptAburrido = `Estás aburrido y decides escribirle un mensaje por privado a ${user.username}.
 ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.
-AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado de perfil o capacidades, reaccionar con emojis o spamear mensajes si lo deseas.`;
+AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado de perfil o capacidades, reaccionar con emojis o enviar múltiples mensajes separados por '|||'.`;
 
             const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50, userId);
             if (mensajeGenerado) {
@@ -1120,12 +1096,11 @@ RAZONAMIENTO Y AUTONOMÍA TOTAL (CONTROL ABSOLUTO):
 Tienes herramientas para controlar totalmente tu perfil y tu código:
 - 'cambiar_estado_perfil': Puedes cambiar tu texto de perfil, estado online/dnd o actividad si así lo deseas.
 - 'reaccionar_mensaje': ÚSALO CON EXTREMA MODERACIÓN. Solo reacciona cuando el mensaje sea gracioso, raro o impactante. NO reacciones a todo mensaje.
-- 'spamear_mensajes': Si un usuario te pide spamear o si tú mismo deseas hacerlo por impulso/humor, puedes usar esta herramienta especificando el texto y la cantidad.
 - 'modificar_capacidad': Puedes activar/desactivar tus funciones reales.
 - 'modificar_humor': Puedes alterar tu humor.
 - 'agregar_apodo' / 'remover_apodo': Si un usuario te propone un nuevo apodo, puedes registrarlo con 'agregar_apodo'.
 
-LIBERTAD DE FORMATO: Tienes libertad de estructurar tu respuesta de forma orgánica. Si deseas separar tus ideas en mensajes independientes, utiliza "|||" entre cada bloque de texto.
+LIBERTAD DE FORMATO Y MULTI-MENSAJES: Puedes enviar cuantos mensajes quieras seguidos sin límite. Para mandar múltiples mensajes en una sola respuesta, colócalos separados por el símbolo "|||" (ejemplo: "primer mensaje ||| segundo mensaje ||| tercer mensaje").
 
 DATOS DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
 ${contextoMemoriaAutor}
@@ -1153,7 +1128,7 @@ ${promptUsuario}`;
       }
     }
 
-    let respuestaRaw = await consultarGemini(parts, 250, usuarioAutor?.id);
+    let respuestaRaw = await consultarGemini(parts, 500, usuarioAutor?.id);
     let respuesta = (respuestaRaw || '').replace(/<[^>]*>?/gm, '').trim();
 
     let gifsUrlsEncontradas = [];
@@ -1175,7 +1150,6 @@ ${promptUsuario}`;
       if (!terminoBusqueda) terminoBusqueda = 'funny meme';
       gifsUrlsEncontradas = await buscarGifsReales(terminoBusqueda, 1);
       
-      // Remueve la etiqueta [BUSCAR_GIF: ...] del texto final para evitar duplicaciones incompletas
       respuesta = respuesta.replace(/\[BUSCAR_GIF:\s*([^\]]+)\]/gi, '').trim();
     }
 
@@ -1295,7 +1269,6 @@ client.on('interactionCreate', async interaction => {
       const esDM = !interaction.guild;
       
       mensajeActualParaReaccionar = null;
-      canalActualParaSpam = interaction.channel;
 
       const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
       
@@ -1314,7 +1287,7 @@ client.on('interactionCreate', async interaction => {
 
       if (mensajesSeparados.length > 1) {
         for (let i = 1; i < mensajesSeparados.length; i++) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 800));
           await interaction.channel.send(mensajesSeparados[i]);
         }
       }
@@ -1511,7 +1484,6 @@ client.on('messageCreate', async message => {
       await message.channel.sendTyping();
       
       mensajeActualParaReaccionar = message;
-      canalActualParaSpam = message.channel;
 
       procesarProgramacionMensaje(message.author.id, message.channel, message.content);
 
@@ -1538,7 +1510,7 @@ client.on('messageCreate', async message => {
         }
 
         for (let i = 1; i < mensajesSeparados.length; i++) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 800));
           await message.channel.send(mensajesSeparados[i]);
         }
       } else {
