@@ -121,13 +121,12 @@ const HERRAMIENTAS_KLINT = [
   },
   {
     name: "cambiar_estado_perfil",
-    description: "Permite a Klint cambiar su propio estado de Discord, su presencia o la actividad que está mostrando.",
+    description: "Permite a Klint cambiar su propio texto de estado personalizado (Custom Status) de Discord y su presencia con total libertad creativa.",
     parameters: {
       type: "OBJECT",
       properties: {
-        textoEstado: { type: "STRING", description: "El texto del nuevo estado de perfil" },
-        visibilidad: { type: "STRING", description: "Estado de presencia: 'online', 'idle', o 'dnd'" },
-        tipoActividad: { type: "STRING", description: "Tipo de actividad: 'Custom', 'Playing', 'Listening', 'Watching'" }
+        textoEstado: { type: "STRING", description: "El texto del nuevo estado personalizado de perfil (libertad absoluta de contenido)" },
+        visibilidad: { type: "STRING", description: "Estado de presencia: 'online', 'idle', o 'dnd'" }
       },
       required: ["textoEstado"]
     }
@@ -185,22 +184,17 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
     logEvent(`[AUTONOMÍA KLINT] Klint ajustó sus emociones para ${userId}: Enojo=${humor.enojo}, Afecto=${humor.afecto}, Aburrimiento=${humor.aburrimiento}`);
     return "Emociones ajustadas correctamente.";
   } else if (nombreTool === "cambiar_estado_perfil") {
-    const { textoEstado, visibilidad, tipoActividad } = argumentos;
+    const { textoEstado, visibilidad } = argumentos;
     if (client.user) {
-      let actType = ActivityType.Custom;
-      if (tipoActividad === 'Playing') actType = ActivityType.Playing;
-      if (tipoActividad === 'Listening') actType = ActivityType.Listening;
-      if (tipoActividad === 'Watching') actType = ActivityType.Watching;
-
       client.user.setPresence({
         status: visibilidad || 'online',
         activities: [{
           name: 'Custom Status',
           state: textoEstado,
-          type: actType
+          type: ActivityType.Custom
         }]
       });
-      logEvent(`[AUTONOMÍA KLINT] Estado cambiado por la IA a: "${textoEstado}" (${visibilidad || 'online'})`);
+      logEvent(`[AUTONOMÍA KLINT] Estado Personalizado cambiado por la IA a: "${textoEstado}" (${visibilidad || 'online'})`);
       
       if (timerEstadoRandom) clearTimeout(timerEstadoRandom);
       programarCambioEstadoRandom();
@@ -243,7 +237,8 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildPresences,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildVoiceStates
   ],
   partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
 });
@@ -509,7 +504,7 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Muestra la ficha técnica, memorias, meme y GIF generado por Klint para ti'),
+    .setDescription('Muestra la ficha técnica completa de tu perfil, juegos, estado y memorias'),
   new SlashCommandBuilder()
     .setName('ofertas')
     .setDescription('Busca ofertas de juegos en descuento'),
@@ -777,23 +772,13 @@ Si SÍ es relevante, redacta la memoria EN PRIMERA PERSONA DESDE TU PERSPECTIVA 
 
 async function actualizarEstadoIA(peticionManual = null) {
   try {
-    const estilosEstado = [
-      'Inventa un estado de perfil totalmente espontáneo, absurdo o gracioso.',
-      'Pon un estado de alguien que está comiendo o pensando en comida.',
-      'Pon un estado sobre estar jugando un juego aleatorio o viendo un video raro.',
-      'Pon un estado sarcástico sobre el trabajo, la vida o la tecnología.',
-      'Inventa una frase ultra corta de jerga casual urbana.',
-      'Pon un estado existencial o filosófico pero dicho como un meme.'
-    ];
-    
-    const estiloElegido = estilosEstado[Math.floor(Math.random() * estilosEstado.length)];
-    let promptEstado = `${estiloElegido} Máximo 5 palabras, todo en minúsculas, sin puntos ni comillas.`;
+    let promptEstado = `Inventa un estado personalizado (Custom Status) de perfil para Discord con total libertad creativa, estilo casual, libre, espontáneo o gracioso. Sin restricciones de tema. Máximo 10 palabras, en minúsculas, sin comillas.`;
     
     if (peticionManual) {
-      promptEstado = `Genera un estado de perfil casual basado en esto: "${peticionManual}". Máximo 5 palabras, solo texto.`;
+      promptEstado = `Genera un estado personalizado libre basado en esto: "${peticionManual}". Sin comillas.`;
     }
 
-    const textoGenerado = await consultarGemini([{ text: promptEstado }], 25);
+    const textoGenerado = await consultarGemini([{ text: promptEstado }], 30);
     const textoEstado = (textoGenerado || 'pensando en la nada').trim().replace(/<[^>]*>?/gm, '').replace(/^["']|["']$/g, '').toLowerCase();
 
     const estadosVisibilidad = ['online', 'idle', 'dnd'];
@@ -870,7 +855,7 @@ function iniciarMonitorAburrimientoYMD() {
 
             const promptAburrido = `Estás aburrido y decides escribirle un mensaje por privado a ${user.username}.
 ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.
-AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado de perfil o capacidades, reaccionar con emojis o enviar múltiples mensajes separados por '|||'.`;
+AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado personalizado de perfil o capacidades, reaccionar con emojis o enviar múltiples mensajes separados por '|||'.`;
 
             const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50, userId);
             if (mensajeGenerado) {
@@ -931,38 +916,62 @@ async function urlToGenerativePart(url) {
   }
 }
 
+// INSPECCIÓN PROFUNDA DE USUARIOS (Juegos, Rich Presence, Widgets, Roles, Estado de Voz)
 async function obtenerPresenciaCualquierEntorno(user, guild = null) {
   let member = null;
 
   if (guild) {
-    try { member = guild.members.cache.get(user.id); } catch (e) {}
+    try { member = await guild.members.fetch(user.id).catch(() => null); } catch (e) {}
   } else if (client.isReady()) {
     for (const g of client.guilds.cache.values()) {
-      member = g.members.cache.get(user.id);
-      if (member && member.presence) break;
+      try {
+        member = await g.members.fetch(user.id).catch(() => null);
+        if (member) break;
+      } catch (e) {}
     }
   }
 
-  if (!member || !member.presence) return 'Sin estado/Offline';
-
-  const pres = member.presence;
   let detalles = [];
+  const statusVisibilidad = member?.presence?.status || 'offline/desconocido';
+  detalles.push(`Estado de presencia: ${statusVisibilidad.toUpperCase()}`);
 
-  if (pres.activities && pres.activities.length > 0) {
-    pres.activities.forEach(act => {
-      if (act.type === 4 || act.type === ActivityType.Custom) {
-        const texto = act.state || act.name || '';
-        if (texto) detalles.push(`Estado de perfil: "${texto}"`);
-      } else if (act.name === 'Spotify') {
-        const cancion = act.details ? `${act.details} de ${act.state}` : 'Spotify';
-        detalles.push(`Escuchando en Spotify: ${cancion}`);
-      } else if (act.name) {
-        detalles.push(`Jugando: ${act.name}`);
+  if (member) {
+    const roles = member.roles.cache.filter(r => r.name !== '@everyone').map(r => r.name);
+    if (roles.length > 0) {
+      detalles.push(`Roles en Servidor: [${roles.join(', ')}]`);
+    }
+
+    if (member.voice && member.voice.channel) {
+      detalles.push(`Canal de Voz: Conectado a "${member.voice.channel.name}" (Muteado: ${member.voice.mute ? 'Sí' : 'No'})`);
+    }
+
+    if (member.presence && member.presence.activities && member.presence.activities.length > 0) {
+      const listaActividades = [];
+      member.presence.activities.forEach(act => {
+        if (act.type === ActivityType.Custom) {
+          if (act.state) listaActividades.push(`Estado personalizado: "${act.state}"`);
+        } else if (act.type === ActivityType.Playing) {
+          let extra = act.details ? ` (${act.details}${act.state ? ' - ' + act.state : ''})` : '';
+          listaActividades.push(`JUGANDO: ${act.name}${extra}`);
+        } else if (act.type === ActivityType.Streaming) {
+          listaActividades.push(`TRANSMITIENDO EN VIVO: ${act.name} (${act.url || ''})`);
+        } else if (act.type === ActivityType.Listening) {
+          let extra = act.details ? `: "${act.details}" de ${act.state}` : '';
+          listaActividades.push(`ESCUCHANDO: ${act.name}${extra}`);
+        } else if (act.type === ActivityType.Watching) {
+          listaActividades.push(`VIENDO: ${act.name}`);
+        } else if (act.name) {
+          listaActividades.push(`Actividad (${act.name})`);
+        }
+      });
+
+      if (listaActividades.length > 0) {
+        detalles.push(`ACTIVIDADES / JUEGOS DETECTADOS:\n  * ${listaActividades.join('\n  * ')}`);
       }
-    });
+    }
   }
 
-  return detalles.length > 0 ? detalles.join(' | ') : 'En línea (sin actividad visible)';
+  return detalles.length > 0 ? detalles.join('\n') : 'En línea (sin actividades visibles)';
 }
 
 async function obtenerDetallesIntegrantesServidor(guild, canal = null) {
@@ -981,21 +990,24 @@ async function obtenerDetallesIntegrantesServidor(guild, canal = null) {
       const esBot = m.user.bot ? '[BOT]' : '[USUARIO]';
       const pres = m.presence;
       let estadoTexto = 'Sin estado';
-      let actividadTexto = '';
+      let juegoTexto = '';
 
       if (pres && pres.activities && pres.activities.length > 0) {
         pres.activities.forEach(act => {
-          if (act.type === 4 || act.type === ActivityType.Custom) {
-            estadoTexto = act.state || act.name || 'Sin estado';
+          if (act.type === ActivityType.Custom) {
+            estadoTexto = act.state || 'Sin estado';
+          } else if (act.type === ActivityType.Playing) {
+            juegoTexto += ` [Jugando: ${act.name}]`;
           } else if (act.name === 'Spotify') {
-            actividadTexto = ` (Spotify: ${act.details} - ${act.state})`;
-          } else if (act.name) {
-            actividadTexto = ` (Jugando: ${act.name})`;
+            juegoTexto += ` [Spotify: ${act.details || ''}]`;
           }
         });
       }
 
-      resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}) (Tag: <@${m.id}>) ${esBot} [Perfil: "${estadoTexto}"${actividadTexto}]`);
+      const rolesUser = m.roles.cache.filter(r => r.name !== '@everyone').map(r => r.name).join(', ');
+      const strRoles = rolesUser ? ` (Roles: ${rolesUser})` : '';
+
+      resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}) (Tag: <@${m.id}>) ${esBot}${strRoles} [Perfil: "${estadoTexto}"${juegoTexto}]`);
     });
 
     return `CANTIDAD TOTAL DE MIEMBROS EN EL SERVIDOR: ${totalMiembros}${descServidor}${descCanal}\n\nLISTA COMPLETA DE MIEMBROS:\n${resumenMiembros.join('\n')}`;
@@ -1081,7 +1093,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-TU ESTADO ACTUAL VISIBLE EN DISCORD: "${estadoActualKlint}"
+TU ESTADO PERSONALIZADO ACTUAL VISIBLE EN DISCORD: "${estadoActualKlint}"
 NOMBRES/APODOS ACTUALES QUE RECONOCES COMO TUYOS: [${nombresActualesLista}]
 ESTADO ACTUAL DE TUS CAPACIDADES:
 - Mensajes por Aburrimiento: ${featureToggles.mensajesAburrimiento ? 'ACTIVADO' : 'DESACTIVADO'}
@@ -1094,7 +1106,7 @@ ESTADO EMOCIONAL ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
 
 RAZONAMIENTO Y AUTONOMÍA TOTAL (CONTROL ABSOLUTO):
 Tienes herramientas para controlar totalmente tu perfil y tu código:
-- 'cambiar_estado_perfil': Puedes cambiar tu texto de perfil, estado online/dnd o actividad si así lo deseas.
+- 'cambiar_estado_perfil': Puedes cambiar tu texto de estado personalizado (Custom Status) y visibilidad (online/idle/dnd) con total libertad creativa de lo que quieras poner.
 - 'reaccionar_mensaje': ÚSALO CON EXTREMA MODERACIÓN. Solo reacciona cuando el mensaje sea gracioso, raro o impactante. NO reacciones a todo mensaje.
 - 'modificar_capacidad': Puedes activar/desactivar tus funciones reales.
 - 'modificar_humor': Puedes alterar tu humor.
@@ -1102,7 +1114,8 @@ Tienes herramientas para controlar totalmente tu perfil y tu código:
 
 LIBERTAD DE FORMATO Y MULTI-MENSAJES: Puedes enviar cuantos mensajes quieras seguidos sin límite. Para mandar múltiples mensajes en una sola respuesta, colócalos separados por el símbolo "|||" (ejemplo: "primer mensaje ||| segundo mensaje ||| tercer mensaje").
 
-DATOS DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}): [${presenciaAutor}]
+INFORMACIÓN DETALLADA DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}):
+${presenciaAutor}
 ${contextoMemoriaAutor}
 
 MEMORIA A CORTO PLAZO (Tus últimos mensajes intercambiados con ${usuarioAutor?.username}):
@@ -1319,10 +1332,12 @@ client.on('interactionCreate', async interaction => {
       const archivosAdjuntos = [];
       if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
 
-      const mensajeStatus = `🤖 **PERFIL Y FICHA DEL USUARIO**
+      const mensajeStatus = `🤖 **PERFIL Y FICHA COMPLETA DEL USUARIO**
 👤 **Usuario:** ${username} (Apodo: ${nick})
 🆔 **ID:** \`${user.id}\`
-🟢 **Presencia / Estado Actual:** ${presenciaTexto}
+
+📡 **INFORMACIÓN DE PRESENCIA / JUEGOS / WIDGETS:**
+${presenciaTexto}
 
 🔥 **ESTADO EMOCIONAL DE KLINT CONTIGO:**
 - Enojo: ${humor.enojo}/100
