@@ -22,7 +22,7 @@ function logEvent(msg, esError = false) {
 // Control de Aborto de Tareas por Canal/Usuario
 const abortControllers = new Map();
 
-// Memoria a Corto Plazo en RAM por Usuario (Últimos 30 mensajes)
+// Memoria a Corto Plazo en RAM por Usuario (Últimos 100 mensajes aislados por ID)
 const memoriaCortoPlazoUsuarios = new Map();
 
 function guardarEnMemoriaCortoPlazo(userId, rol, nombre, contenido) {
@@ -33,7 +33,7 @@ function guardarEnMemoriaCortoPlazo(userId, rol, nombre, contenido) {
   const historialUser = memoriaCortoPlazoUsuarios.get(userId);
   historialUser.push({ rol, nombre, contenido, fecha: new Date() });
   
-  if (historialUser.length > 30) {
+  if (historialUser.length > 100) {
     historialUser.shift();
   }
 }
@@ -69,10 +69,10 @@ function actualizarHumor(userId, textoMensaje) {
   humor.aburrimiento = Math.max(0, humor.aburrimiento - 20);
 }
 
-// Partidas Activas de Ahorcado
+// Partidas Activas de Juegos
 const partidasAhorcado = new Map();
 
-// Feature Toggles (Estado del Bot - Modificables por la propia IA o desde la Web)
+// Feature Toggles
 const featureToggles = {
   audio: true,
   memes: true,
@@ -121,7 +121,7 @@ const HERRAMIENTAS_KLINT = [
   },
   {
     name: "cambiar_estado_perfil",
-    description: "Permite a Klint cambiar su propio texto de estado personalizado (Custom Status) de Discord y su presencia con total libertad absoluta sin restricciones.",
+    description: "Permite a Klint cambiar su propio texto de estado personalizado de Discord y su presencia con total libertad.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -133,11 +133,11 @@ const HERRAMIENTAS_KLINT = [
   },
   {
     name: "agregar_apodo",
-    description: "Permite a Klint registrar un nuevo nombre o apodo para responder cuando lo llamen asi.",
+    description: "Permite a Klint registrar un nuevo nombre o apodo para responder cuando lo llamen así.",
     parameters: {
       type: "OBJECT",
       properties: {
-        nuevoApodo: { type: "STRING", description: "El nuevo apodo o nombre a registrar en su código" }
+        nuevoApodo: { type: "STRING", description: "El nuevo apodo o nombre a registrar" }
       },
       required: ["nuevoApodo"]
     }
@@ -155,7 +155,7 @@ const HERRAMIENTAS_KLINT = [
   },
   {
     name: "reaccionar_mensaje",
-    description: "Permite a Klint reaccionar con un emoji al mensaje del usuario solo en ocasiones excepcionales.",
+    description: "Permite a Klint reaccionar con un emoji al mensaje del usuario.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -171,16 +171,16 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId, targetMessage 
     const { funcion, nuevoEstado, razon } = argumentos;
     if (featureToggles.hasOwnProperty(funcion)) {
       featureToggles[funcion] = nuevoEstado;
-      logEvent(`[AUTONOMÍA KLINT] Klint decidió cambiar '${funcion}' a ${nuevoEstado}. Razón: ${razon || 'Sin razón dada'}`);
-      return `He cambiado la capacidad '${funcion}' a ${nuevoEstado}.`;
+      logEvent(`[AUTONOMÍA KLINT] Cambió '${funcion}' a ${nuevoEstado}. Razón: ${razon || 'Sin razón'}`);
+      return `Capacidad '${funcion}' cambiada a ${nuevoEstado}.`;
     }
   } else if (nombreTool === "modificar_humor" && userId) {
     const humor = obtenerOIniciarHumor(userId);
     if (argumentos.enojo !== undefined) humor.enojo = Math.min(100, Math.max(0, argumentos.enojo));
     if (argumentos.afecto !== undefined) humor.afecto = Math.min(100, Math.max(0, argumentos.afecto));
     if (argumentos.aburrimiento !== undefined) humor.aburrimiento = Math.min(100, Math.max(0, argumentos.aburrimiento));
-    logEvent(`[AUTONOMÍA KLINT] Klint ajustó sus emociones para ${userId}: Enojo=${humor.enojo}, Afecto=${humor.afecto}, Aburrimiento=${humor.aburrimiento}`);
-    return "Niveles de humor ajustados.";
+    logEvent(`[AUTONOMÍA KLINT] Emociones ajustadas para ${userId}`);
+    return "Humor actualizado.";
   } else if (nombreTool === "cambiar_estado_perfil") {
     const { textoEstado, visibilidad } = argumentos;
     if (client.user) {
@@ -192,34 +192,30 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId, targetMessage 
           type: ActivityType.Custom
         }]
       });
-      logEvent(`[AUTONOMÍA KLINT] Estado Personalizado cambiado por la IA a: "${textoEstado}" (${visibilidad || 'online'})`);
-      
+      logEvent(`[AUTONOMÍA KLINT] Estado cambiado a: "${textoEstado}"`);
       if (timerEstadoRandom) clearTimeout(timerEstadoRandom);
       programarCambioEstadoRandom();
-
-      return `Estado actualizado a: "${textoEstado}".`;
+      return `Estado actualizado a "${textoEstado}".`;
     }
   } else if (nombreTool === "agregar_apodo") {
     const apodoLimpio = argumentos.nuevoApodo.toLowerCase().trim();
     if (apodoLimpio) {
       nombresKlint.add(apodoLimpio);
-      logEvent(`[AUTONOMÍA KLINT] Nuevo apodo agregado: "${apodoLimpio}"`);
+      logEvent(`[AUTONOMÍA KLINT] Apodo añadido: "${apodoLimpio}"`);
       return `Apodo "${apodoLimpio}" guardado.`;
     }
   } else if (nombreTool === "remover_apodo") {
     const apodoLimpio = argumentos.apodoAEliminar.toLowerCase().trim();
     if (nombresKlint.has(apodoLimpio)) {
       nombresKlint.delete(apodoLimpio);
-      logEvent(`[AUTONOMÍA KLINT] Apodo eliminado: "${apodoLimpio}"`);
+      logEvent(`[AUTONOMÍA KLINT] Apodo borrado: "${apodoLimpio}"`);
       return `Apodo "${apodoLimpio}" eliminado.`;
     }
   } else if (nombreTool === "reaccionar_mensaje") {
     if (targetMessage && argumentos.emoji) {
-      targetMessage.react(argumentos.emoji).catch(err => {
-        logEvent(`Error reaccionando con emoji ${argumentos.emoji}: ${err.message}`, true);
-      });
-      logEvent(`[AUTONOMÍA KLINT] Klint reaccionó con ${argumentos.emoji} al mensaje.`);
-      return `Reaccioné con ${argumentos.emoji}.`;
+      targetMessage.react(argumentos.emoji).catch(() => {});
+      logEvent(`[AUTONOMÍA KLINT] Reacción enviada: ${argumentos.emoji}`);
+      return `Reaccionado con ${argumentos.emoji}.`;
     }
   }
   return "Herramienta ejecutada.";
@@ -247,7 +243,7 @@ function cargarSystemInstruction() {
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     logEvent(`Error al cargar system_instruction.txt: ${error.message}`, true);
-    return 'Eres Klint. Tienes libertad absoluta de responder como quieras, de forma spontaneous, casual y natural.';
+    return 'Eres Klint. Tienes libertad absoluta de responder como quieras, de forma espontánea, casual y humana.';
   }
 }
 
@@ -310,7 +306,7 @@ app.get('/api/tts', async (req, res) => {
     res.set('Content-Type', 'audio/mpeg');
     res.send(buffer);
   } catch (err) {
-    logEvent(`Error en ElevenLabs, usando fallback: ${err.message}`, true);
+    logEvent(`Error ElevenLabs: ${err.message}`, true);
     res.redirect(`https://api.streamelements.com/kappa/v2/speech?voice=Lupe&text=${encodeURIComponent(text)}`);
   }
 });
@@ -371,7 +367,7 @@ app.post('/api/edit-memory', validarKey, async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resumen: newResumen, fechaEditado: new Date().toISOString() })
     });
-    logEvent(`Memoria ${memoryKey} editada para el usuario ${userId}.`);
+    logEvent(`Memoria ${memoryKey} editada para usuario ${userId}.`);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -407,7 +403,7 @@ app.post('/api/send-discord-msg', validarKey, async (req, res) => {
 });
 
 app.post('/api/deep-reset', validarKey, async (req, res) => {
-  logEvent('Iniciando proceso de Limpieza Profunda...');
+  logEvent('Limpieza Profunda iniciada...');
   systemLogs = [];
   memoriaCortoPlazoUsuarios.clear();
   partidasAhorcado.clear();
@@ -420,19 +416,18 @@ app.post('/api/deep-reset', validarKey, async (req, res) => {
     try {
       const response = await fetch(deployHookUrl, { method: 'POST' });
       if (response.ok) {
-        logEvent('Deploy Hook enviado a Render para reconstruir el servidor.');
-        return res.json({ success: true, message: 'Reinicio profundo completado y re-despliegue en curso en Render.' });
+        return res.json({ success: true, message: 'Reinicio profundo completado en Render.' });
       }
     } catch (err) {
-      logEvent(`Error invocando Deploy Hook: ${err.message}`, true);
+      logEvent(`Error Deploy Hook: ${err.message}`, true);
     }
   }
 
-  res.json({ success: true, message: 'Limpieza de RAM y estado completada en el servidor actual.' });
+  res.json({ success: true, message: 'Limpieza realizada correctamente.' });
 });
 
 app.post('/api/master-reset-deploy', validarKey, async (req, res) => {
-  logEvent('Ejecutando Reset Duro, Limpieza de Cache/Logs e iniciando Re-Deploy...');
+  logEvent('Ejecutando Reset Duro...');
   systemLogs = [];
   memoriaCortoPlazoUsuarios.clear();
   partidasAhorcado.clear();
@@ -445,18 +440,18 @@ app.post('/api/master-reset-deploy', validarKey, async (req, res) => {
     try {
       const response = await fetch(deployHookUrl, { method: 'POST' });
       if (response.ok) {
-        return res.json({ success: true, message: 'Purga completada y Deploy iniciado exitosamente en Render.' });
+        return res.json({ success: true, message: 'Purga completada y Deploy iniciado.' });
       }
     } catch (err) {
-      logEvent(`Error invocando Deploy Hook: ${err.message}`, true);
+      logEvent(`Error Deploy Hook: ${err.message}`, true);
     }
   }
-  res.json({ success: true, message: 'Limpieza de RAM y Logs realizada.' });
+  res.json({ success: true, message: 'Limpieza de RAM realizada.' });
 });
 
 app.post('/api/web-chat', async (req, res) => {
   if (!featureToggles.webChat) {
-    return res.json({ response: 'El chat web está deshabilitado temporalmente.' });
+    return res.json({ response: 'Chat web deshabilitado.' });
   }
   try {
     const { message, count, imageUrl } = req.body;
@@ -479,8 +474,8 @@ app.post('/api/web-chat', async (req, res) => {
       remaining: 15 - count 
     });
   } catch (err) {
-    logEvent(`Error en Web Chat: ${err.message}`, true);
-    res.status(500).json({ response: 'Ocurrió un error al procesar la solicitud.' });
+    logEvent(`Error Web Chat: ${err.message}`, true);
+    res.status(500).json({ response: 'Error procesando solicitud.' });
   }
 });
 
@@ -493,6 +488,7 @@ setInterval(() => {
     .catch((err) => logEvent(`Fallo en self-ping: ${err.message}`, true));
 }, 10 * 60 * 1000);
 
+// COMANDOS SLASH (3 JUEGOS Y HERRAMIENTAS)
 const commands = [
   new SlashCommandBuilder()
     .setName('klint')
@@ -507,26 +503,33 @@ const commands = [
     .setDescription('Muestra la ficha técnica completa de tu perfil, juegos, estado y memorias'),
   new SlashCommandBuilder()
     .setName('stop')
-    .setDescription('Detiene cualquier tarea o spam activo que Klint esté realizando'),
+    .setDescription('Detiene tareas o spams en curso'),
   new SlashCommandBuilder()
     .setName('ofertas')
     .setDescription('Busca ofertas de juegos en descuento'),
   new SlashCommandBuilder()
     .setName('juego')
-    .setDescription('Inicia una partida de Tres en Raya con botones'),
+    .setDescription('JUEGO 1: Inicia Tres en Raya'),
   new SlashCommandBuilder()
     .setName('ahorcado')
-    .setDescription('Juega al Ahorcado con Klint')
+    .setDescription('JUEGO 2: Juega al Ahorcado con Klint'),
+  new SlashCommandBuilder()
+    .setName('ppt')
+    .setDescription('JUEGO 3: Juega Piedra, Papel o Tijera contra Klint')
 ].map(command => command.toJSON());
 
 client.once('clientReady', async () => {
   logEvent(`Klint ha iniciado sesión como ${client.user.tag}`);
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
+    // Sincronización instantánea global y por cada servidor
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    logEvent('Comandos Slash sincronizados.');
+    client.guilds.cache.forEach(async (guild) => {
+      await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: commands }).catch(() => {});
+    });
+    logEvent('Comandos Slash sincronizados sin requerir reinvitar al bot.');
   } catch (error) {
-    logEvent(`Error al registrar comandos slash: ${error.message}`, true);
+    logEvent(`Error registrando comandos: ${error.message}`, true);
   }
 
   await actualizarEstadoIA();
@@ -548,23 +551,28 @@ async function buscarOfertasJuegos() {
 }
 
 const MODELOS_FALLBACK = [
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent'
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+
 ];
 
-async function consultarGemini(parts, maxTokens = 400, userId = null, targetMessage = null) {
+async function consultarGemini(parts, maxTokens = 600, userId = null, targetMessage = null) {
   let ultimoError = null;
 
   for (const endpoint of MODELOS_FALLBACK) {
@@ -584,19 +592,15 @@ async function consultarGemini(parts, maxTokens = 400, userId = null, targetMess
       if (response.ok && data.candidates?.[0]?.content?.parts) {
         const candidateParts = data.candidates[0].content.parts;
         let textoSalida = "";
-        let herramientaResultado = "";
 
         for (const p of candidateParts) {
           if (p.text) textoSalida += p.text;
           if (p.functionCall) {
-            herramientaResultado = ejecutarHerramientaKlint(p.functionCall.name, p.functionCall.args, userId, targetMessage);
-            logEvent(`[Tool Executed] ${p.functionCall.name} -> ${herramientaResultado}`);
+            ejecutarHerramientaKlint(p.functionCall.name, p.functionCall.args, userId, targetMessage);
           }
         }
         
-        if (textoSalida.trim()) return textoSalida;
-        if (herramientaResultado) return herramientaResultado;
-        return "De acuerdo.";
+        return textoSalida;
       }
       ultimoError = data.error?.message || `Status ${response.status}`;
     } catch (err) {
@@ -605,7 +609,7 @@ async function consultarGemini(parts, maxTokens = 400, userId = null, targetMess
   }
 
   logEvent(`Fallback Gemini agotado: ${ultimoError}`, true);
-  return 'Ocurrió un problema procesando la consulta.';
+  return '';
 }
 
 async function buscarGifsReales(busquedasArray) {
@@ -632,7 +636,7 @@ async function buscarGifsReales(busquedasArray) {
           }
         }
       } catch (err) {
-        logEvent(`Error al consultar Giphy API: ${err.message}`, true);
+        logEvent(`Error Giphy API: ${err.message}`, true);
       }
     }
 
@@ -651,7 +655,7 @@ async function buscarGifsReales(busquedasArray) {
           }
         }
       } catch (err) {
-        logEvent(`Error al consultar Tenor API: ${err.message}`, true);
+        logEvent(`Error Tenor API: ${err.message}`, true);
       }
     }
 
@@ -700,7 +704,7 @@ function generarUrlMemeImagen(promptMeme) {
 
     return `https://api.memegen.link/images/${plantilla}/${sanearTexto(textoArriba)}/${sanearTexto(textoAbajo)}.png`;
   } catch (err) {
-    logEvent(`Error formando URL de meme: ${err.message}`, true);
+    logEvent(`Error generando URL de meme: ${err.message}`, true);
     return null;
   }
 }
@@ -727,7 +731,7 @@ async function descargarBufferAudio(urlAudio) {
       return Buffer.from(arrayBuf);
     }
   } catch (e) {
-    logEvent(`Error descargando buffer de audio: ${e.message}`, true);
+    logEvent(`Error descargando audio: ${e.message}`, true);
   }
   return null;
 }
@@ -740,7 +744,7 @@ async function obtenerMemoriaUsuario(userId) {
     const res = await fetch(`${dbUrl}/usuarios/${userId}.json`);
     if (res.ok) return await res.json();
   } catch (err) {
-    logEvent(`Error al conectar con Firebase: ${err.message}`, true);
+    logEvent(`Error consultando Firebase: ${err.message}`, true);
   }
   return null;
 }
@@ -851,7 +855,8 @@ function iniciarMonitorAburrimientoYMD() {
             humor.aburrimiento = 0;
 
             const promptAburrido = `Estás aburrido y decides escribirle un mensaje por privado a ${user.username}.
-ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.`;
+ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.
+AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado personalizado de perfil o capacidades, reaccionar con emojis o enviar múltiples mensajes separados por '|||'.`;
 
             const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50, userId);
             if (mensajeGenerado) {
@@ -896,18 +901,20 @@ function procesarProgramacionMensaje(userId, channel, promptTexto) {
   }
 }
 
-async function urlToGenerativePart(url) {
+// PROCESADOR MULTIMODAL DE ADJUNTOS (IMÁGENES, AUDIO Y VIDEO)
+async function urlToGenerativePart(url, mimeTypeHint = null) {
   try {
     const response = await fetch(url);
     const arrayBuffer = await response.arrayBuffer();
+    const contentType = mimeTypeHint || response.headers.get('content-type') || 'image/png';
     return {
       inline_data: {
         data: Buffer.from(arrayBuffer).toString('base64'),
-        mime_type: response.headers.get('content-type') || 'image/png'
+        mime_type: contentType
       }
     };
   } catch (error) {
-    logEvent(`Error descargando imagen para la IA: ${error.message}`, true);
+    logEvent(`Error descargando archivo para la IA: ${error.message}`, true);
     return null;
   }
 }
@@ -974,13 +981,13 @@ async function obtenerDetallesIntegrantesServidor(guild, canal = null) {
     let count = 0;
 
     miembros.forEach(m => {
-      if (count >= 50) return; // Limite seguro para no consumir exceso de RAM
+      if (count >= 50) return;
       const esBot = m.user.bot ? '[BOT]' : '[USUARIO]';
       resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}) ${esBot}`);
       count++;
     });
 
-    return `CANTIDAD TOTAL DE MIEMBROS: ${totalMiembros}${descCanal}\n\nLISTA DE MIEMBROS MUESTRA:\n${resumenMiembros.join('\n')}`;
+    return `CANTIDAD TOTAL DE MIEMBROS: ${totalMiembros}${descCanal}\n\nLISTA DE MIEMBROS:\n${resumenMiembros.join('\n')}`;
   } catch (err) {
     return 'No se pudo sincronizar la lista de miembros';
   }
@@ -1010,7 +1017,12 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       const mensajesPrevios = await canal.messages.fetch({ limit: 5 }).catch(() => new Map());
       conteoPrevio = mensajesPrevios.size;
       historialFormateado = Array.from(mensajesPrevios.values()).reverse().map(m => {
-        return `${m.author.username} (<@${m.author.id}>): ${m.content}`;
+        let contenido = m.content;
+        if (m.stickers && m.stickers.size > 0) {
+          const nombresStickers = m.stickers.map(s => `[Sticker: ${s.name}]`).join(' ');
+          contenido = `${contenido} ${nombresStickers}`.trim();
+        }
+        return `${m.author.username} (<@${m.author.id}>): ${contenido}`;
       }).join('\n');
     }
 
@@ -1028,11 +1040,11 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
         const ultimasMemorias = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
-        contextoMemoriaAutor = `\nDATOS Y MEMORIAS A LARGO PLAZO DE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
+        contextoMemoriaAutor = `\nDATOS Y MEMORIAS A LARGO PLAZO QUE TIENES SOBRE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
       }
     }
 
-    const tipoEntorno = esDM ? 'CHAT PRIVADO' : 'CHAT PÚBLICO';
+    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
     const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
     const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio)\b/i.test(promptUsuario);
@@ -1042,23 +1054,38 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-TU ESTADO PERSONALIZADO ACTUAL: "${estadoActualKlint}"
-NOMBRES/APODOS ACTUALES: [${nombresActualesLista}]
+TU ESTADO PERSONALIZADO ACTUAL VISIBLE EN DISCORD: "${estadoActualKlint}"
+NOMBRES/APODOS ACTUALES QUE RECONOCES COMO TUYOS: [${nombresActualesLista}]
+ESTADO ACTUAL DE TUS CAPACIDADES:
+- Mensajes por Aburrimiento: ${featureToggles.mensajesAburrimiento ? 'ACTIVADO' : 'DESACTIVADO'}
+- Audio/TTS: ${featureToggles.audio ? 'Activo' : 'Inactivo'}
+- Memes: ${featureToggles.memes ? 'Activo' : 'Inactivo'}
+- GIFs: ${featureToggles.gifs ? 'Activo' : 'Inactivo'}
 
-ESTADO EMOCIONAL CON ${usuarioAutor?.username || 'Usuario'}:
+ESTADO EMOCIONAL ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
 - Enojo: ${humor.enojo}/100 | Afecto: ${humor.afecto}/100 | Aburrimiento: ${humor.aburrimiento}/100
 
-DATOS DEL USUARIO (${usuarioAutor?.username}):
+RAZONAMIENTO Y AUTONOMÍA TOTAL:
+- 'cambiar_estado_perfil': Puedes cambiar tu texto de estado personalizado libremente.
+- 'reaccionar_mensaje': Reacciona cuando el mensaje te llame la atención o sea gracioso.
+- 'modificar_capacidad': Puedes activar/desactivar tus funciones reales.
+- 'modificar_humor': Puedes alterar tu humor.
+- 'agregar_apodo' / 'remover_apodo': Puedes registrar o remover apodos.
+
+REGLA DE GIFS: Si deseas adjuntar gifs usa [BUSCAR_GIF: termino_en_ingles].
+MULTI-MENSAJES: Para mandar múltiples mensajes en una sola respuesta, colócalos separados por el símbolo "|||".
+
+INFORMACIÓN DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}):
 ${presenciaAutor}
 ${contextoMemoriaAutor}
 
-MEMORIA A CORTO PLAZO:
-${historialCortoPlazoTexto || 'Sin historial reciente'}
+MEMORIA A CORTO PLAZO (Últimos mensajes intercambiados con ${usuarioAutor?.username}):
+${historialCortoPlazoTexto || 'Sin historial reciente grabado'}
 
-INFORMACIÓN DEL SERVIDOR:
+INFORMACIÓN DEL SERVIDOR/CANAL:
 ${miembrosServidorTexto}
 
-HISTORIAL DEL CANAL:
+HISTORIAL RECIENTE DEL CANAL GENERAL:
 ${historialFormateado}
 
 MENSAJE DE ${usuarioAutor?.username || 'Usuario'}:
@@ -1066,16 +1093,18 @@ ${promptUsuario}`;
 
     const parts = [{ text: promptText }];
 
+    // Soporte multimodal: Imágenes, Audio y Video
     if (adjuntos.length > 0) {
       for (const attachment of adjuntos) {
-        if (attachment.contentType && attachment.contentType.startsWith('image/')) {
-          const imagePart = await urlToGenerativePart(attachment.url);
-          if (imagePart) parts.push(imagePart);
+        const mime = attachment.contentType || '';
+        if (mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')) {
+          const mediaPart = await urlToGenerativePart(attachment.url, mime);
+          if (mediaPart) parts.push(mediaPart);
         }
       }
     }
 
-    let respuestaRaw = await consultarGemini(parts, 500, usuarioAutor?.id, targetMessage);
+    let respuestaRaw = await consultarGemini(parts, 600, usuarioAutor?.id, targetMessage);
     let respuesta = (respuestaRaw || '').replace(/<[^>]*>?/gm, '').trim();
 
     let gifsUrlsEncontradas = [];
@@ -1123,6 +1152,7 @@ ${promptUsuario}`;
   }
 }
 
+// CONSTRUCTORES DE JUEGOS CON BOTONES (3 JUEGOS)
 function construirTableroTicTacToe(tablero) {
   const rows = [];
   for (let i = 0; i < 3; i++) {
@@ -1211,6 +1241,16 @@ function crearComponentesAhorcado(letrasUsadas) {
   return rows;
 }
 
+function crearComponentesPPT() {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ppt_piedra').setLabel('🪨 Piedra').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('ppt_papel').setLabel('📄 Papel').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ppt_tijera').setLabel('✂️ Tijera').setStyle(ButtonStyle.Danger)
+    )
+  ];
+}
+
 client.on('interactionCreate', async interaction => {
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'stop') {
@@ -1271,7 +1311,7 @@ client.on('interactionCreate', async interaction => {
       let resumenMemoria = 'Sin memorias registradas.';
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
-        resumenMemoria = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
+        resumenMemoria = memoriasArray.slice(-5).map(m => `- ${m.resumen}`).join('\n');
       }
 
       const humor = obtenerOIniciarHumor(user.id);
@@ -1281,18 +1321,26 @@ client.on('interactionCreate', async interaction => {
       const archivosAdjuntos = [];
       if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
 
-      const mensajeStatus = `🤖 **PERFIL DE USUARIO**
+      const mensajeStatus = `🤖 **FICHA TÉCNICA Y STATUS COMPLETO**
 👤 **Usuario:** ${username} (Apodo: ${nick})
 🆔 **ID:** \`${user.id}\`
 
-📡 **PRESENCIA Y ACTIVIDADES:**
+📡 **PRESENCIA Y ACTIVIDADES EN DISCORD:**
 ${presenciaTexto}
 
-🔥 **HUMOR CON KLINT:**
-- Enojo: ${humor.enojo}/100 | Afecto: ${humor.afecto}/100 | Aburrimiento: ${humor.aburrimiento}/100
+🔥 **HUMOR Y EMOCIONES DE KLINT CONTIGO:**
+- Enojo: ${humor.enojo}/100
+- Afecto: ${humor.afecto}/100
+- Aburrimiento: ${humor.aburrimiento}/100
 
-🧠 **MEMORIAS GUARDADAS:**
+🗣️ **NOMBRES/APODOS REGISTRADOS:**
+${Array.from(nombresKlint).join(', ')}
+
+🧠 **MEMORIAS GUARDADAS EN FIREBASE:**
 ${resumenMemoria}
+
+⚙️ **ESTADO DE CAPACIDADES:**
+- Audios: ${featureToggles.audio ? '✅' : '❌'} | Memes: ${featureToggles.memes ? '✅' : '❌'} | GIFs: ${featureToggles.gifs ? '✅' : '❌'} | WebChat: ${featureToggles.webChat ? '✅' : '❌'}
 
 ${gifsUrls.join('\n')}`;
 
@@ -1302,13 +1350,13 @@ ${gifsUrls.join('\n')}`;
     if (interaction.commandName === 'ofertas') {
       await interaction.deferReply();
       const ofertasTxt = await buscarOfertasJuegos();
-      await interaction.editReply(`🎮 **OFERTAS DESTACADAS:**\n${ofertasTxt}`);
+      await interaction.editReply(`🎮 **OFERTAS DESTACADAS EN JUEGOS:**\n${ofertasTxt}`);
     }
 
     if (interaction.commandName === 'juego') {
       const tableroInicial = Array(9).fill('-');
       const rows = construirTableroTicTacToe(tableroInicial);
-      await interaction.reply({ content: '❌ **TRES EN RAYA**:', components: rows });
+      await interaction.reply({ content: '❌ **JUEGO 1: TRES EN RAYA**:', components: rows });
     }
 
     if (interaction.commandName === 'ahorcado') {
@@ -1323,10 +1371,41 @@ ${gifsUrls.join('\n')}`;
       const rows = crearComponentesAhorcado([]);
 
       await interaction.reply({
-        content: `🔤 **AHORCADO**\n\nPalabra: ${progreso}\nIntentos restantes: 6 ❤️`,
+        content: `🔤 **JUEGO 2: AHORCADO**\n\nPalabra: ${progreso}\nIntentos restantes: 6 ❤️`,
         components: rows
       });
     }
+
+    if (interaction.commandName === 'ppt') {
+      await interaction.reply({
+        content: '🥌 **JUEGO 3: PIEDRA, PAPEL O TIJERA**\n\nElige tu opción:',
+        components: crearComponentesPPT()
+      });
+    }
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith('ppt_')) {
+    const eleccionUser = interaction.customId.replace('ppt_', '');
+    const opciones = ['piedra', 'papel', 'tijera'];
+    const eleccionKlint = opciones[Math.floor(Math.random() * opciones.length)];
+
+    let resultado = '🤝 ¡Empate!';
+    if (
+      (eleccionUser === 'piedra' && eleccionKlint === 'tijera') ||
+      (eleccionUser === 'papel' && eleccionKlint === 'piedra') ||
+      (eleccionUser === 'tijera' && eleccionKlint === 'papel')
+    ) {
+      resultado = '🎉 ¡Ganaste tú!';
+    } else if (eleccionUser !== eleccionKlint) {
+      resultado = '🤖 ¡Gané yo (Klint)!';
+    }
+
+    const emojis = { piedra: '🪨', papel: '📄', tijera: '✂️' };
+
+    await interaction.update({
+      content: `🥌 **PIEDRA, PAPEL O TIJERA**\n\nTú elegiste: ${emojis[eleccionUser]} **${eleccionUser.toUpperCase()}**\nKlint eligió: ${emojis[eleccionKlint]} **${eleccionKlint.toUpperCase()}**\n\n**Resultado:** ${resultado}`,
+      components: []
+    });
   }
 
   if (interaction.isButton() && interaction.customId.startsWith('ahorcado_')) {
@@ -1352,7 +1431,7 @@ ${gifsUrls.join('\n')}`;
 
     if (estaPerdida) {
       partidasAhorcado.delete(interaction.user.id);
-      return interaction.update({ content: `💀 Fin del juego. Era: **${partida.palabra}**`, components: [] });
+      return interaction.update({ content: `💀 Fin del juego. La palabra era: **${partida.palabra}**`, components: [] });
     }
 
     const rows = crearComponentesAhorcado(partida.letrasUsadas);
@@ -1479,7 +1558,7 @@ client.on('messageCreate', async message => {
           if (abortControllers.get(keyAbort)?.aborted) break;
           await message.channel.sendTyping().catch(() => {});
           await new Promise(resolve => setTimeout(resolve, 800));
-          await interaction.channel.send(mensajesSeparados[i]);
+          await message.channel.send(mensajesSeparados[i]);
         }
       } else {
         let textoFinal = respuesta;
