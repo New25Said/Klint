@@ -19,10 +19,7 @@ function logEvent(msg, esError = false) {
   if (systemLogs.length > 50) systemLogs.pop();
 }
 
-// Control de Actividad para Revivir Chat
-const canalUltimaActividad = new Map();
-
-// Control de Aborto de Tareas por Canal/Usuario (Para detener spams o mensajes múltiples)
+// Control de Aborto de Tareas por Canal/Usuario
 const abortControllers = new Map();
 
 // Memoria a Corto Plazo en RAM por Usuario (Últimos 30 mensajes)
@@ -169,15 +166,13 @@ const HERRAMIENTAS_KLINT = [
   }
 ];
 
-let mensajeActualParaReaccionar = null;
-
-function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
+function ejecutarHerramientaKlint(nombreTool, argumentos, userId, targetMessage = null) {
   if (nombreTool === "modificar_capacidad") {
     const { funcion, nuevoEstado, razon } = argumentos;
     if (featureToggles.hasOwnProperty(funcion)) {
       featureToggles[funcion] = nuevoEstado;
       logEvent(`[AUTONOMÍA KLINT] Klint decidió cambiar '${funcion}' a ${nuevoEstado}. Razón: ${razon || 'Sin razón dada'}`);
-      return `Capacidad '${funcion}' modificada con éxito a ${nuevoEstado}.`;
+      return `He cambiado la capacidad '${funcion}' a ${nuevoEstado}.`;
     }
   } else if (nombreTool === "modificar_humor" && userId) {
     const humor = obtenerOIniciarHumor(userId);
@@ -185,7 +180,7 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
     if (argumentos.afecto !== undefined) humor.afecto = Math.min(100, Math.max(0, argumentos.afecto));
     if (argumentos.aburrimiento !== undefined) humor.aburrimiento = Math.min(100, Math.max(0, argumentos.aburrimiento));
     logEvent(`[AUTONOMÍA KLINT] Klint ajustó sus emociones para ${userId}: Enojo=${humor.enojo}, Afecto=${humor.afecto}, Aburrimiento=${humor.aburrimiento}`);
-    return "Emociones ajustadas correctamente.";
+    return "Niveles de humor ajustados.";
   } else if (nombreTool === "cambiar_estado_perfil") {
     const { textoEstado, visibilidad } = argumentos;
     if (client.user) {
@@ -202,32 +197,32 @@ function ejecutarHerramientaKlint(nombreTool, argumentos, userId) {
       if (timerEstadoRandom) clearTimeout(timerEstadoRandom);
       programarCambioEstadoRandom();
 
-      return `Estado actualizado a "${textoEstado}".`;
+      return `Estado actualizado a: "${textoEstado}".`;
     }
   } else if (nombreTool === "agregar_apodo") {
     const apodoLimpio = argumentos.nuevoApodo.toLowerCase().trim();
     if (apodoLimpio) {
       nombresKlint.add(apodoLimpio);
       logEvent(`[AUTONOMÍA KLINT] Nuevo apodo agregado: "${apodoLimpio}"`);
-      return `Apodo "${apodoLimpio}" añadido correctamente. Ahora reacciono a él.`;
+      return `Apodo "${apodoLimpio}" guardado.`;
     }
   } else if (nombreTool === "remover_apodo") {
     const apodoLimpio = argumentos.apodoAEliminar.toLowerCase().trim();
     if (nombresKlint.has(apodoLimpio)) {
       nombresKlint.delete(apodoLimpio);
       logEvent(`[AUTONOMÍA KLINT] Apodo eliminado: "${apodoLimpio}"`);
-      return `Apodo "${apodoLimpio}" removido de la lista.`;
+      return `Apodo "${apodoLimpio}" eliminado.`;
     }
   } else if (nombreTool === "reaccionar_mensaje") {
-    if (mensajeActualParaReaccionar && argumentos.emoji) {
-      mensajeActualParaReaccionar.react(argumentos.emoji).catch(err => {
+    if (targetMessage && argumentos.emoji) {
+      targetMessage.react(argumentos.emoji).catch(err => {
         logEvent(`Error reaccionando con emoji ${argumentos.emoji}: ${err.message}`, true);
       });
       logEvent(`[AUTONOMÍA KLINT] Klint reaccionó con ${argumentos.emoji} al mensaje.`);
-      return `Reaccionado con emoji ${argumentos.emoji}.`;
+      return `Reaccioné con ${argumentos.emoji}.`;
     }
   }
-  return "Error al ejecutar la herramienta.";
+  return "Herramienta ejecutada.";
 }
 
 process.on('unhandledRejection', (reason) => logEvent(`Promesa no manejada: ${reason?.stack || reason}`, true));
@@ -252,7 +247,7 @@ function cargarSystemInstruction() {
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     logEvent(`Error al cargar system_instruction.txt: ${error.message}`, true);
-    return 'Eres Klint. Tienes libertad absoluta de responder como quieras, de forma espontánea, casual y natural.';
+    return 'Eres Klint. Tienes libertad absoluta de responder como quieras, de forma spontaneous, casual y natural.';
   }
 }
 
@@ -456,7 +451,7 @@ app.post('/api/master-reset-deploy', validarKey, async (req, res) => {
       logEvent(`Error invocando Deploy Hook: ${err.message}`, true);
     }
   }
-  res.json({ success: true, message: 'Limpieza de RAM y Logs realizada. (Asegúrate de tener RENDER_DEPLOY_HOOK_URL configurado en Render).' });
+  res.json({ success: true, message: 'Limpieza de RAM y Logs realizada.' });
 });
 
 app.post('/api/web-chat', async (req, res) => {
@@ -474,7 +469,7 @@ app.post('/api/web-chat', async (req, res) => {
       adjuntos.push({ contentType: 'image/png', url: imageUrl });
     }
 
-    const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(null, message || 'hola', adjuntos, true, { username: 'UsuarioWeb', id: 'web_guest' }, null);
+    const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(null, message || 'hola', adjuntos, true, { username: 'UsuarioWeb', id: 'web_guest' }, null, null);
 
     res.json({ 
       response: respuesta, 
@@ -536,7 +531,6 @@ client.once('clientReady', async () => {
 
   await actualizarEstadoIA();
   programarCambioEstadoRandom();
-  iniciarMonitorRevivirChat();
   iniciarMonitorAburrimientoYMD();
 });
 
@@ -570,7 +564,7 @@ const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
 ];
 
-async function consultarGemini(parts, maxTokens = 250, userId = null) {
+async function consultarGemini(parts, maxTokens = 400, userId = null, targetMessage = null) {
   let ultimoError = null;
 
   for (const endpoint of MODELOS_FALLBACK) {
@@ -590,15 +584,19 @@ async function consultarGemini(parts, maxTokens = 250, userId = null) {
       if (response.ok && data.candidates?.[0]?.content?.parts) {
         const candidateParts = data.candidates[0].content.parts;
         let textoSalida = "";
+        let herramientaResultado = "";
 
         for (const p of candidateParts) {
           if (p.text) textoSalida += p.text;
           if (p.functionCall) {
-            const resTool = ejecutarHerramientaKlint(p.functionCall.name, p.functionCall.args, userId);
-            logEvent(`[Tool Executed] ${p.functionCall.name} -> ${resTool}`);
+            herramientaResultado = ejecutarHerramientaKlint(p.functionCall.name, p.functionCall.args, userId, targetMessage);
+            logEvent(`[Tool Executed] ${p.functionCall.name} -> ${herramientaResultado}`);
           }
         }
-        return textoSalida || "listo pe";
+        
+        if (textoSalida.trim()) return textoSalida;
+        if (herramientaResultado) return herramientaResultado;
+        return "De acuerdo.";
       }
       ultimoError = data.error?.message || `Status ${response.status}`;
     } catch (err) {
@@ -833,32 +831,6 @@ function programarCambioEstadoRandom() {
   }, minutosRandom * 60 * 1000);
 }
 
-function iniciarMonitorRevivirChat() {
-  setInterval(async () => {
-    if (!client.isReady()) return;
-    const ahora = Date.now();
-    const INACTIVIDAD_MS = 3 * 60 * 60 * 1000;
-
-    for (const [channelId, lastTime] of canalUltimaActividad.entries()) {
-      if (ahora - lastTime > INACTIVIDAD_MS) {
-        canalUltimaActividad.set(channelId, ahora);
-        try {
-          const channel = await client.channels.fetch(channelId).catch(() => null);
-          if (channel && channel.isTextBased() && channel.permissionsFor(client.user)?.has('SendMessages')) {
-            const promptRevivir = "Genera un mensaje espontáneo, casual e informal de una frase para romper el silencio en un chat de Discord.";
-            const mensajeRevivir = await consultarGemini([{ text: promptRevivir }], 40);
-            await channel.send(mensajeRevivir || 'hola');
-            logEvent(`[Revivir Chat] Mensaje enviado al canal ${channelId}`);
-          }
-        } catch (e) {
-          logEvent(`Error al revivir chat: ${e.message}`, true);
-        }
-      }
-    }
-  }, 15 * 60 * 1000);
-}
-
-// Monitor de Aburrimiento e Impulsividad (Si 'mensajesAburrimiento' está activado)
 function iniciarMonitorAburrimientoYMD() {
   setInterval(async () => {
     if (!client.isReady() || !featureToggles.mensajesAburrimiento || usuariosPermitidosMD.size === 0) return;
@@ -879,8 +851,7 @@ function iniciarMonitorAburrimientoYMD() {
             humor.aburrimiento = 0;
 
             const promptAburrido = `Estás aburrido y decides escribirle un mensaje por privado a ${user.username}.
-ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.
-AUTONOMÍA Y RAZONAMIENTO: Tienes la capacidad de razonar sobre tu estado actual, ejecutar herramientas para cambiar tu estado personalizado de perfil o capacidades, reaccionar con emojis o enviar múltiples mensajes separados por '|||'.`;
+ESTADO EMOCIONAL ACTUAL: Enojo=${humor.enojo}/100, Afecto=${humor.afecto}/100, Aburrimiento=Máximo.`;
 
             const mensajeGenerado = await consultarGemini([{ text: promptAburrido }], 50, userId);
             if (mensajeGenerado) {
@@ -915,7 +886,7 @@ function procesarProgramacionMensaje(userId, channel, promptTexto) {
         if (user) {
           const promptRecordatorio = `Se cumplió el tiempo que te pidió ${user.username} (${cantidad} ${unidad}). Genera un mensaje espontáneo o recordatorio casual en una frase.`;
           const mensajeRemind = await consultarGemini([{ text: promptRecordatorio }], 50, userId);
-          await user.send(mensajeRemind || `ya pasaron los ${cantidad} ${unidad} pe xd`);
+          await user.send(mensajeRemind || `ya pasaron los ${cantidad} ${unidad}`);
           logEvent(`[Mensaje Programado] Enviado a ${user.username}`);
         }
       } catch (err) {
@@ -941,18 +912,15 @@ async function urlToGenerativePart(url) {
   }
 }
 
-// INSPECCIÓN PROFUNDA DE USUARIOS (Juegos, Rich Presence, Widgets, Roles, Estado de Voz)
 async function obtenerPresenciaCualquierEntorno(user, guild = null) {
   let member = null;
 
   if (guild) {
-    try { member = await guild.members.fetch(user.id).catch(() => null); } catch (e) {}
+    try { member = guild.members.cache.get(user.id); } catch (e) {}
   } else if (client.isReady()) {
     for (const g of client.guilds.cache.values()) {
-      try {
-        member = await g.members.fetch(user.id).catch(() => null);
-        if (member) break;
-      } catch (e) {}
+      member = g.members.cache.get(user.id);
+      if (member) break;
     }
   }
 
@@ -967,7 +935,7 @@ async function obtenerPresenciaCualquierEntorno(user, guild = null) {
     }
 
     if (member.voice && member.voice.channel) {
-      detalles.push(`Canal de Voz: Conectado a "${member.voice.channel.name}" (Muteado: ${member.voice.mute ? 'Sí' : 'No'})`);
+      detalles.push(`Canal de Voz: Conectado a "${member.voice.channel.name}"`);
     }
 
     if (member.presence && member.presence.activities && member.presence.activities.length > 0) {
@@ -976,74 +944,49 @@ async function obtenerPresenciaCualquierEntorno(user, guild = null) {
         if (act.type === ActivityType.Custom) {
           if (act.state) listaActividades.push(`Estado personalizado: "${act.state}"`);
         } else if (act.type === ActivityType.Playing) {
-          let extra = act.details ? ` (${act.details}${act.state ? ' - ' + act.state : ''})` : '';
-          listaActividades.push(`JUGANDO: ${act.name}${extra}`);
+          listaActividades.push(`JUGANDO: ${act.name}`);
         } else if (act.type === ActivityType.Streaming) {
-          listaActividades.push(`TRANSMITIENDO EN VIVO: ${act.name} (${act.url || ''})`);
+          listaActividades.push(`TRANSMITIENDO EN VIVO: ${act.name}`);
         } else if (act.type === ActivityType.Listening) {
-          let extra = act.details ? `: "${act.details}" de ${act.state}` : '';
-          listaActividades.push(`ESCUCHANDO: ${act.name}${extra}`);
+          listaActividades.push(`ESCUCHANDO: ${act.name}`);
         } else if (act.type === ActivityType.Watching) {
           listaActividades.push(`VIENDO: ${act.name}`);
-        } else if (act.name) {
-          listaActividades.push(`Actividad (${act.name})`);
         }
       });
 
       if (listaActividades.length > 0) {
-        detalles.push(`ACTIVIDADES / JUEGOS DETECTADOS:\n  * ${listaActividades.join('\n  * ')}`);
+        detalles.push(`ACTIVIDADES DETECTADAS:\n  * ${listaActividades.join('\n  * ')}`);
       }
     }
   }
 
-  return detalles.length > 0 ? detalles.join('\n') : 'En línea (sin actividades visibles)';
+  return detalles.length > 0 ? detalles.join('\n') : 'En línea';
 }
 
 async function obtenerDetallesIntegrantesServidor(guild, canal = null) {
-  if (!guild) return 'Entorno DM (Sin lista masiva de servidor)';
+  if (!guild) return 'Entorno DM';
   try {
-    await guild.members.fetch().catch(() => {});
     const miembros = guild.members.cache;
     const totalMiembros = guild.memberCount || miembros.size;
-    
-    const descServidor = guild.description ? `\nDESCRIPCIÓN DEL SERVIDOR: "${guild.description}"` : '';
-    const descCanal = (canal && canal.topic) ? `\nDESCRIPCIÓN/TEMA DEL CANAL ACTUAL (<#${canal.id}>): "${canal.topic}"` : '';
+    const descCanal = (canal && canal.topic) ? `\nDESCRIPCIÓN DEL CANAL: "${canal.topic}"` : '';
 
     const resumenMiembros = [];
+    let count = 0;
 
     miembros.forEach(m => {
+      if (count >= 50) return; // Limite seguro para no consumir exceso de RAM
       const esBot = m.user.bot ? '[BOT]' : '[USUARIO]';
-      const pres = m.presence;
-      let estadoTexto = 'Sin estado';
-      let juegoTexto = '';
-
-      if (pres && pres.activities && pres.activities.length > 0) {
-        pres.activities.forEach(act => {
-          if (act.type === ActivityType.Custom) {
-            estadoTexto = act.state || 'Sin estado';
-          } else if (act.type === ActivityType.Playing) {
-            juegoTexto += ` [Jugando: ${act.name}]`;
-          } else if (act.name === 'Spotify') {
-            juegoTexto += ` [Spotify: ${act.details || ''}]`;
-          }
-        });
-      }
-
-      const rolesUser = m.roles.cache.filter(r => r.name !== '@everyone').map(r => r.name).join(', ');
-      const strRoles = rolesUser ? ` (Roles: ${rolesUser})` : '';
-
-      resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}) (Tag: <@${m.id}>) ${esBot}${strRoles} [Perfil: "${estadoTexto}"${juegoTexto}]`);
+      resumenMiembros.push(`- ${m.user.username} (Apodo: ${m.displayName}) ${esBot}`);
+      count++;
     });
 
-    return `CANTIDAD TOTAL DE MIEMBROS EN EL SERVIDOR: ${totalMiembros}${descServidor}${descCanal}\n\nLISTA COMPLETA DE MIEMBROS:\n${resumenMiembros.join('\n')}`;
+    return `CANTIDAD TOTAL DE MIEMBROS: ${totalMiembros}${descCanal}\n\nLISTA DE MIEMBROS MUESTRA:\n${resumenMiembros.join('\n')}`;
   } catch (err) {
-    logEvent(`Error obteniendo integrantes del servidor: ${err.message}`, true);
     return 'No se pudo sincronizar la lista de miembros';
   }
 }
 
-// Procesador de IA
-async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null) {
+async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = false, usuarioAutor = null, guild = null, targetMessage = null) {
   try {
     const systemInstruction = cargarSystemInstruction();
     
@@ -1067,16 +1010,7 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       const mensajesPrevios = await canal.messages.fetch({ limit: 5 }).catch(() => new Map());
       conteoPrevio = mensajesPrevios.size;
       historialFormateado = Array.from(mensajesPrevios.values()).reverse().map(m => {
-        const usuarioNombre = m.author.username;
-        const usuarioId = m.author.id;
-        let contenido = m.content;
-
-        if (m.stickers && m.stickers.size > 0) {
-          const nombresStickers = m.stickers.map(s => `[Sticker enviado: ${s.name}]`).join(' ');
-          contenido = `${contenido} ${nombresStickers}`.trim();
-        }
-
-        return `${usuarioNombre} (<@${usuarioId}>): ${contenido}`;
+        return `${m.author.username} (<@${m.author.id}>): ${m.content}`;
       }).join('\n');
     }
 
@@ -1094,62 +1028,37 @@ async function procesarRespuestaIA(canal, promptUsuario, adjuntos = [], esDM = f
       if (datosFirebase && datosFirebase.memorias) {
         const memoriasArray = Object.values(datosFirebase.memorias);
         const ultimasMemorias = memoriasArray.slice(-3).map(m => `- ${m.resumen}`).join('\n');
-        contextoMemoriaAutor = `\nDATOS Y MEMORIAS A LARGO PLAZO QUE TIENES SOBRE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
+        contextoMemoriaAutor = `\nDATOS Y MEMORIAS A LARGO PLAZO DE ${usuarioAutor.username}:\n${ultimasMemorias}\n`;
       }
     }
 
-    const tipoEntorno = esDM ? 'CHAT PRIVADO (DM / WEB)' : 'CHAT PÚBLICO';
-
+    const tipoEntorno = esDM ? 'CHAT PRIVADO' : 'CHAT PÚBLICO';
     const pideGifExplicitamente = /\b(gif|manda un gif|pasa un gif|envia un gif|gifs)\b/i.test(promptUsuario);
     const pideMemeImagen = /\b(crea un meme|haz un meme|generar meme|meme en imagen)\b/i.test(promptUsuario);
-    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio|mensje de voz|mensaje de voz|mensaje voz)\b/i.test(promptUsuario);
-
-    let instruccionExtra = '';
-    if (pideAudio) {
-      instruccionExtra = "\nREGLA DE AUDIO: Escribe ÚNICAMENTE el texto que vas a expresar por voz.";
-    } else if (pideMemeImagen) {
-      instruccionExtra = "\nREGLA DE MEME EN IMAGEN: Si deseas generar una imagen de meme usa la etiqueta [GENERAR_MEME: plantilla_o_tema | texto arriba | texto abajo].";
-    }
+    const pideAudio = /\b(manda un audio|manda audio|nota de voz|habla|dilo en audio|audio)\b/i.test(promptUsuario);
 
     const nombresActualesLista = Array.from(nombresKlint).join(', ');
 
     const promptText = `${systemInstruction}
 
 ENTORNO: ${tipoEntorno}
-TU ESTADO PERSONALIZADO ACTUAL VISIBLE EN DISCORD: "${estadoActualKlint}"
-NOMBRES/APODOS ACTUALES QUE RECONOCES COMO TUYOS: [${nombresActualesLista}]
-ESTADO ACTUAL DE TUS CAPACIDADES:
-- Mensajes por Aburrimiento: ${featureToggles.mensajesAburrimiento ? 'ACTIVADO' : 'DESACTIVADO'}
-- Audio/TTS: ${featureToggles.audio ? 'Activo' : 'Inactivo'}
-- Memes: ${featureToggles.memes ? 'Activo' : 'Inactivo'}
-- GIFs: ${featureToggles.gifs ? 'Activo' : 'Inactivo'}
+TU ESTADO PERSONALIZADO ACTUAL: "${estadoActualKlint}"
+NOMBRES/APODOS ACTUALES: [${nombresActualesLista}]
 
-ESTADO EMOCIONAL ACTUAL CON ${usuarioAutor?.username || 'Usuario'}:
+ESTADO EMOCIONAL CON ${usuarioAutor?.username || 'Usuario'}:
 - Enojo: ${humor.enojo}/100 | Afecto: ${humor.afecto}/100 | Aburrimiento: ${humor.aburrimiento}/100
 
-RAZONAMIENTO Y AUTONOMÍA TOTAL (CONTROL ABSOLUTO):
-Tienes herramientas para controlar totalmente tu perfil y tu código:
-- 'cambiar_estado_perfil': Puedes cambiar tu texto de estado personalizado (Custom Status) de forma libre sin ninguna restricción temática o de longitud.
-- 'reaccionar_mensaje': ÚSALO CON EXTREMA MODERACIÓN. Solo reacciona cuando el mensaje sea gracioso, raro o impactante. NO reacciones a todo mensaje.
-- 'modificar_capacidad': Puedes activar/desactivar tus funciones reales.
-- 'modificar_humor': Puedes alterar tu humor.
-- 'agregar_apodo' / 'remover_apodo': Si un usuario te propone un nuevo apodo, puedes registrarlo con 'agregar_apodo'.
-
-REGLA DE GIFS: Si deseas adjuntar gifs usa [BUSCAR_GIF: termino_en_ingles]. Puedes poner múltiples etiquetas [BUSCAR_GIF: ...] en diferentes partes de tu respuesta.
-
-LIBERTAD DE FORMATO Y MULTI-MENSAJES: Puedes enviar cuantos mensajes quieras seguidos sin límite. Para mandar múltiples mensajes en una sola respuesta, colócalos separados por el símbolo "|||" (ejemplo: "primer mensaje ||| segundo mensaje ||| tercer mensaje").
-
-INFORMACIÓN DETALLADA DEL USUARIO QUE TE HABLA (${usuarioAutor?.username}):
+DATOS DEL USUARIO (${usuarioAutor?.username}):
 ${presenciaAutor}
 ${contextoMemoriaAutor}
 
-MEMORIA A CORTO PLAZO (Tus últimos mensajes intercambiados con ${usuarioAutor?.username}):
-${historialCortoPlazoTexto || 'Sin historial reciente grabado'}
+MEMORIA A CORTO PLAZO:
+${historialCortoPlazoTexto || 'Sin historial reciente'}
 
-INFORMACIÓN Y INTEGRANTES DEL SERVIDOR/CANAL:
+INFORMACIÓN DEL SERVIDOR:
 ${miembrosServidorTexto}
 
-HISTORIAL RECIENTE DEL CANAL GENERAL:
+HISTORIAL DEL CANAL:
 ${historialFormateado}
 
 MENSAJE DE ${usuarioAutor?.username || 'Usuario'}:
@@ -1166,7 +1075,7 @@ ${promptUsuario}`;
       }
     }
 
-    let respuestaRaw = await consultarGemini(parts, 500, usuarioAutor?.id);
+    let respuestaRaw = await consultarGemini(parts, 500, usuarioAutor?.id, targetMessage);
     let respuesta = (respuestaRaw || '').replace(/<[^>]*>?/gm, '').trim();
 
     let gifsUrlsEncontradas = [];
@@ -1177,12 +1086,11 @@ ${promptUsuario}`;
       audioUrlGenerado = obtenerUrlAudioVozNativo(respuesta);
     } else if (pideMemeImagen || respuesta.includes('[GENERAR_MEME:')) {
       const matchMeme = respuesta.match(/\[GENERAR_MEME:\s*([^\]]+)\]/i);
-      const textoMeme = matchMeme ? matchMeme[1] : 'meme | xd';
+      const textoMeme = matchMeme ? matchMeme[1] : 'meme';
       respuesta = respuesta.replace(/\[GENERAR_MEME:\s*([^\]]+)\]/i, '').trim();
       memeImagenUrl = generarUrlMemeImagen(textoMeme);
     }
 
-    // Extracción de TODOS los tags de GIF sin dejar residuos de texto
     const matchesGif = [...respuesta.matchAll(/\[BUSCAR_GIF:\s*([^\]]+)\]/gi)];
     let terminosGifs = matchesGif.map(m => m[1].trim());
 
@@ -1199,7 +1107,6 @@ ${promptUsuario}`;
     if (usuarioAutor && usuarioAutor.id !== 'web_guest') {
       guardarEnMemoriaCortoPlazo(usuarioAutor.id, 'USUARIO', usuarioAutor.username, promptUsuario);
       guardarEnMemoriaCortoPlazo(usuarioAutor.id, 'KLINT', 'Klint', respuesta);
-
       evaluarYGuardarMemoria(usuarioAutor, promptUsuario);
     }
 
@@ -1311,23 +1218,21 @@ client.on('interactionCreate', async interaction => {
       if (abortControllers.has(channelId)) {
         abortControllers.get(channelId).aborted = true;
         abortControllers.delete(channelId);
-        logEvent(`[STOP COMMAND] Tareas o spams cancelados en el canal ${channelId}`);
-        return interaction.reply('🛑 Tarea o envío masivo detenido correctamente.');
+        logEvent(`[STOP COMMAND] Tareas detenidas en el canal ${channelId}`);
+        return interaction.reply('🛑 Tarea o envío masivo detenido.');
       }
-      return interaction.reply({ content: 'No hay ninguna tarea o envío masivo en curso.', ephemeral: true });
+      return interaction.reply({ content: 'No hay ninguna tarea en curso.', ephemeral: true });
     }
 
     if (interaction.commandName === 'klint') {
       await interaction.deferReply();
       const pregunta = interaction.options.getString('pregunta');
       const esDM = !interaction.guild;
-      
-      mensajeActualParaReaccionar = null;
 
       const keyAbort = interaction.channelId;
       abortControllers.set(keyAbort, { aborted: false });
 
-      const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild);
+      const { respuesta, gifsUrls, memeImagenUrl, audioUrl } = await procesarRespuestaIA(interaction.channel, pregunta, [], esDM, interaction.user, interaction.guild, null);
       
       let archivosAdjuntos = [];
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
@@ -1337,17 +1242,14 @@ client.on('interactionCreate', async interaction => {
       }
 
       const mensajesSeparados = respuesta.split('|||').map(m => m.trim()).filter(m => m.length > 0);
-      let primerTexto = mensajesSeparados[0] || '';
+      let primerTexto = mensajesSeparados[0] || '...';
       if (gifsUrls.length > 0) primerTexto += `\n${gifsUrls.join('\n')}`;
 
-      await interaction.editReply({ content: primerTexto || '...', files: archivosAdjuntos });
+      await interaction.editReply({ content: primerTexto, files: archivosAdjuntos });
 
       if (mensajesSeparados.length > 1) {
         for (let i = 1; i < mensajesSeparados.length; i++) {
-          if (abortControllers.get(keyAbort)?.aborted) {
-            logEvent(`[STOP DETECTADO] Bucle interrumpido para ${keyAbort}`);
-            break;
-          }
+          if (abortControllers.get(keyAbort)?.aborted) break;
           await interaction.channel.sendTyping().catch(() => {});
           await new Promise(resolve => setTimeout(resolve, 800));
           await interaction.channel.send(mensajesSeparados[i]);
@@ -1365,7 +1267,6 @@ client.on('interactionCreate', async interaction => {
       const username = user.username;
 
       const presenciaTexto = await obtenerPresenciaCualquierEntorno(user, interaction.guild);
-
       const datosFirebase = await obtenerMemoriaUsuario(user.id);
       let resumenMemoria = 'Sin memorias registradas.';
       if (datosFirebase && datosFirebase.memorias) {
@@ -1374,28 +1275,21 @@ client.on('interactionCreate', async interaction => {
       }
 
       const humor = obtenerOIniciarHumor(user.id);
-
-      const memeTexto = `${nick} | status`;
-      const memeUrl = generarUrlMemeImagen(memeTexto);
+      const memeUrl = generarUrlMemeImagen(`${nick} | status`);
       const gifsUrls = await buscarGifsReales(['robot']);
 
       const archivosAdjuntos = [];
       if (memeUrl) archivosAdjuntos.push(new AttachmentBuilder(memeUrl, { name: 'status_meme.png' }));
 
-      const mensajeStatus = `🤖 **PERFIL Y FICHA COMPLETA DEL USUARIO**
+      const mensajeStatus = `🤖 **PERFIL DE USUARIO**
 👤 **Usuario:** ${username} (Apodo: ${nick})
 🆔 **ID:** \`${user.id}\`
 
-📡 **INFORMACIÓN DE PRESENCIA / JUEGOS / WIDGETS:**
+📡 **PRESENCIA Y ACTIVIDADES:**
 ${presenciaTexto}
 
-🔥 **ESTADO EMOCIONAL DE KLINT CONTIGO:**
-- Enojo: ${humor.enojo}/100
-- Afecto: ${humor.afecto}/100
-- Aburrimiento: ${humor.aburrimiento}/100
-
-🗣️ **NOMBRES/APODOS REGISTRADOS:**
-${Array.from(nombresKlint).join(', ')}
+🔥 **HUMOR CON KLINT:**
+- Enojo: ${humor.enojo}/100 | Afecto: ${humor.afecto}/100 | Aburrimiento: ${humor.aburrimiento}/100
 
 🧠 **MEMORIAS GUARDADAS:**
 ${resumenMemoria}
@@ -1437,9 +1331,7 @@ ${gifsUrls.join('\n')}`;
 
   if (interaction.isButton() && interaction.customId.startsWith('ahorcado_')) {
     const partida = partidasAhorcado.get(interaction.user.id);
-    if (!partida) {
-      return interaction.reply({ content: 'No hay partida activa. Usa `/ahorcado`.', ephemeral: true });
-    }
+    if (!partida) return interaction.reply({ content: 'Sin partida activa. Usa `/ahorcado`.', ephemeral: true });
 
     const letraElegida = interaction.customId.replace('ahorcado_', '');
     partida.letrasUsadas.push(letraElegida);
@@ -1455,18 +1347,12 @@ ${gifsUrls.join('\n')}`;
 
     if (estaGanada) {
       partidasAhorcado.delete(interaction.user.id);
-      return interaction.update({
-        content: `🎉 ¡Adivinaste la palabra!: **${partida.palabra}**`,
-        components: []
-      });
+      return interaction.update({ content: `🎉 ¡Ganaste!: **${partida.palabra}**`, components: [] });
     }
 
     if (estaPerdida) {
       partidasAhorcado.delete(interaction.user.id);
-      return interaction.update({
-        content: `💀 Fin del juego. La palabra era: **${partida.palabra}**`,
-        components: []
-      });
+      return interaction.update({ content: `💀 Fin del juego. Era: **${partida.palabra}**`, components: [] });
     }
 
     const rows = crearComponentesAhorcado(partida.letrasUsadas);
@@ -1525,31 +1411,24 @@ client.on('messageCreate', async message => {
   const textoLower = message.content.toLowerCase().trim();
   const channelId = message.channel.id;
 
-  // Interrupción inmediata si el usuario pide detener tareas
   if (/\b(stop|parar|para|detente|cancela|cancelar)\b/i.test(textoLower)) {
     if (abortControllers.has(channelId)) {
       abortControllers.get(channelId).aborted = true;
       abortControllers.delete(channelId);
-      logEvent(`[STOP POR MENSAJE] Tarea en el canal ${channelId} cancelada por ${message.author.username}`);
-      await message.reply('🛑 Tareas y envíos detenidos.').catch(() => {});
+      logEvent(`[STOP] Tarea detenida en canal ${channelId}`);
+      await message.reply('🛑 Tareas detenidas.').catch(() => {});
       return;
     }
   }
 
-  if (message.guild && message.channel.isTextBased()) {
-    canalUltimaActividad.set(message.channel.id, Date.now());
-  }
-
   try {
     const esDM = !message.guild;
-    
-    // Verificación dinámica de apodos, menciones directas y menciones globales (@everyone / @here)
     const fueMencionadoDirectamente = message.mentions.has(client.user.id);
     const fueMencionadoEveryone = message.mentions.everyone;
+    
     let contieneNombre = false;
     for (const nombre of nombresKlint) {
-      const regex = new RegExp(`\\b${nombre}\\b`, 'i');
-      if (regex.test(textoLower)) {
+      if (new RegExp(`\\b${nombre}\\b`, 'i').test(textoLower)) {
         contieneNombre = true;
         break;
       }
@@ -1560,8 +1439,6 @@ client.on('messageCreate', async message => {
 
     if (esDM || fueMencionadoDirectamente || fueMencionadoEveryone || contieneNombre || (tieneAdjuntos && contieneNombre) || (tieneStickers && contieneNombre)) {
       await message.channel.sendTyping();
-      
-      mensajeActualParaReaccionar = message;
 
       const keyAbort = channelId;
       abortControllers.set(keyAbort, { aborted: false });
@@ -1569,7 +1446,15 @@ client.on('messageCreate', async message => {
       procesarProgramacionMensaje(message.author.id, message.channel, message.content);
 
       const adjuntosArray = Array.from(message.attachments.values());
-      const { respuesta, gifsUrls, memeImagenUrl, audioUrl, conteoMensajes } = await procesarRespuestaIA(message.channel, message.content, adjuntosArray, esDM, message.author, message.guild);
+      const { respuesta, gifsUrls, memeImagenUrl, audioUrl, conteoMensajes } = await procesarRespuestaIA(
+        message.channel, 
+        message.content, 
+        adjuntosArray, 
+        esDM, 
+        message.author, 
+        message.guild, 
+        message
+      );
       
       let archivosAdjuntos = [];
       if (memeImagenUrl) archivosAdjuntos.push(new AttachmentBuilder(memeImagenUrl, { name: 'meme_klint.png' }));
@@ -1591,13 +1476,10 @@ client.on('messageCreate', async message => {
         }
 
         for (let i = 1; i < mensajesSeparados.length; i++) {
-          if (abortControllers.get(keyAbort)?.aborted) {
-            logEvent(`[STOP DETECTADO] Deteniendo envío de mensajes extras en ${keyAbort}`);
-            break;
-          }
+          if (abortControllers.get(keyAbort)?.aborted) break;
           await message.channel.sendTyping().catch(() => {});
           await new Promise(resolve => setTimeout(resolve, 800));
-          await message.channel.send(mensajesSeparados[i]);
+          await interaction.channel.send(mensajesSeparados[i]);
         }
       } else {
         let textoFinal = respuesta;
