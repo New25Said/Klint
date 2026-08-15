@@ -567,8 +567,8 @@ const MODELOS_FALLBACK = [
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent'
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
 
 ];
 
